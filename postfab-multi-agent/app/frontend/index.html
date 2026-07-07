@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PostFab Multi-Agent</title>
+<style>
+  :root {
+    --bg: #f1f5f9;
+    --surface: #ffffff;
+    --border: #e2e8f0;
+    --primary: #3b82f6;
+    --primary-dark: #2563eb;
+    --text: #1e293b;
+    --muted: #64748b;
+    --green: #10b981;
+    --orange: #f59e0b;
+    --red: #ef4444;
+    --purple: #8b5cf6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; }
+
+  /* ── Header ── */
+  header { background: var(--surface); border-bottom: 1px solid var(--border);
+           padding: 12px 24px; display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 18px; font-weight: 700; }
+  header span { font-size: 12px; color: var(--muted); }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green);
+                box-shadow: 0 0 0 2px #d1fae5; margin-left: auto; }
+
+  /* ── Layout ── */
+  .main { display: flex; flex: 1; overflow: hidden; }
+
+  /* ── Sidebar ── */
+  aside { width: 220px; background: var(--surface); border-right: 1px solid var(--border);
+          padding: 16px 12px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+  aside h3 { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase;
+             letter-spacing: 0.05em; margin: 8px 0 4px; }
+  .ex-btn { width: 100%; text-align: left; background: var(--bg); border: 1px solid var(--border);
+            border-radius: 6px; padding: 7px 10px; font-size: 12px; cursor: pointer; color: var(--text);
+            transition: all 0.15s; }
+  .ex-btn:hover { background: #eff6ff; border-color: var(--primary); color: var(--primary); }
+  .reset-btn { width: 100%; background: none; border: 1px solid var(--border); border-radius: 6px;
+               padding: 7px; font-size: 12px; cursor: pointer; color: var(--muted); margin-top: auto; }
+  .reset-btn:hover { border-color: var(--red); color: var(--red); }
+  .db-stats { background: var(--bg); border-radius: 8px; padding: 10px; font-size: 12px; }
+  .db-stats .stat { display: flex; justify-content: space-between; padding: 3px 0; }
+  .db-stats .stat span:last-child { font-weight: 700; color: var(--primary); }
+
+  /* ── Chat area ── */
+  .chat-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+  .msg { display: flex; gap: 10px; max-width: 100%; }
+  .msg.user { flex-direction: row-reverse; }
+  .avatar { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center;
+            justify-content: center; font-size: 14px; flex-shrink: 0; }
+  .msg.user .avatar { background: var(--primary); color: white; }
+  .msg.assistant .avatar { background: #f1f5f9; border: 1px solid var(--border); }
+  .bubble { max-width: 680px; }
+  .msg.user .bubble { align-items: flex-end; }
+  .bubble-text { background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+                 padding: 12px 16px; font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
+  .msg.user .bubble-text { background: var(--primary); color: white; border-color: var(--primary); }
+  .meta { font-size: 11px; color: var(--muted); margin-bottom: 6px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .badge { padding: 2px 8px; border-radius: 10px; font-weight: 600; font-size: 11px; }
+  .badge.knowledge { background: #dbeafe; color: #1d4ed8; }
+  .badge.data { background: #d1fae5; color: #065f46; }
+  .badge.root_cause { background: #fee2e2; color: #991b1b; }
+  .badge.unknown { background: #f1f5f9; color: var(--muted); }
+  .report-box { background: #f8fafc; border: 1px solid var(--border); border-radius: 10px;
+                padding: 16px; font-size: 13px; line-height: 1.7; white-space: pre-wrap; margin-top: 4px; }
+
+  /* log toggle */
+  .log-toggle { font-size: 11px; color: var(--primary); cursor: pointer; margin-top: 6px;
+                background: none; border: none; padding: 0; }
+  .log-panel { margin-top: 6px; background: #f8fafc; border: 1px solid var(--border);
+               border-radius: 8px; padding: 10px; font-size: 12px; display: none; }
+  .log-panel.open { display: block; }
+  .log-entry { padding: 4px 0; border-bottom: 1px solid var(--border); display: flex; gap: 8px; align-items: baseline; }
+  .log-entry:last-child { border-bottom: none; }
+  .log-step { font-weight: 700; color: var(--primary); white-space: nowrap; }
+  .log-fn { font-family: monospace; color: var(--orange); }
+  .log-rag { color: var(--purple); }
+
+  /* planner steps */
+  .planner-steps { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  .planner-step { font-size: 11px; background: #fef3c7; color: #92400e; padding: 2px 8px;
+                  border-radius: 10px; font-family: monospace; }
+
+  /* ── Input ── */
+  .input-area { padding: 16px 20px; background: var(--surface); border-top: 1px solid var(--border); }
+  .input-row { display: flex; gap: 10px; }
+  #query-input { flex: 1; padding: 11px 16px; border: 1px solid var(--border); border-radius: 10px;
+                 font-size: 14px; outline: none; transition: border-color 0.15s; }
+  #query-input:focus { border-color: var(--primary); }
+  #send-btn { padding: 11px 20px; background: var(--primary); color: white; border: none;
+              border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+  #send-btn:hover { background: var(--primary-dark); }
+  #send-btn:disabled { background: var(--border); cursor: not-allowed; }
+
+  /* ── Right panel (log + KPI) ── */
+  .right-panel { width: 320px; background: var(--surface); border-left: 1px solid var(--border);
+                 display: flex; flex-direction: column; overflow: hidden; }
+  .panel-tabs { display: flex; border-bottom: 1px solid var(--border); }
+  .panel-tab { flex: 1; padding: 10px; font-size: 12px; font-weight: 600; text-align: center;
+               cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; transition: all 0.15s; }
+  .panel-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+  .panel-content { flex: 1; overflow-y: auto; padding: 14px; display: none; }
+  .panel-content.active { display: block; }
+
+  /* KPI cards */
+  .kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+  .kpi-card { background: var(--bg); border-radius: 8px; padding: 12px; text-align: center; }
+  .kpi-value { font-size: 22px; font-weight: 700; color: var(--primary); }
+  .kpi-label { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .kpi-bar-wrap { margin-bottom: 14px; }
+  .kpi-bar-label { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
+  .kpi-bar-track { height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; }
+  .kpi-bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s; }
+  .history-table { width: 100%; font-size: 11px; border-collapse: collapse; }
+  .history-table th { text-align: left; color: var(--muted); padding: 4px 6px; border-bottom: 1px solid var(--border); }
+  .history-table td { padding: 5px 6px; border-bottom: 1px solid var(--bg); }
+  .latency-badge { padding: 2px 6px; border-radius: 8px; font-size: 10px; font-weight: 700; }
+  .latency-fast { background: #d1fae5; color: #065f46; }
+  .latency-mid  { background: #fef3c7; color: #92400e; }
+  .latency-slow { background: #fee2e2; color: #991b1b; }
+
+  /* Live log panel */
+  .live-log { font-size: 12px; }
+  .live-entry { padding: 8px 0; border-bottom: 1px solid var(--bg); }
+  .live-entry:last-child { border-bottom: none; }
+  .live-step { font-weight: 700; font-size: 11px; }
+  .live-detail { color: var(--muted); margin-top: 2px; font-family: monospace; font-size: 11px; }
+  .empty-state { text-align: center; color: var(--muted); padding: 40px 0; font-size: 13px; }
+
+  /* Spinner */
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border);
+             border-top-color: var(--primary); border-radius: 50%; animation: spin 0.6s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #typing { display: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <span style="font-size:22px">🏭</span>
+  <div>
+    <h1>PostFab Multi-Agent</h1>
+    <span>RAG + Function Calling | ICL Router | 반도체 후공정 P&T</span>
+  </div>
+  <div class="status-dot" title="서버 정상"></div>
+</header>
+
+<div class="main">
+
+  <!-- ── Sidebar ── -->
+  <aside>
+    <h3>📚 용어 질문</h3>
+    <button class="ex-btn" onclick="fillQuery('FDC가 뭐야?')">FDC가 뭐야?</button>
+    <button class="ex-btn" onclick="fillQuery('Yield Trend란?')">Yield Trend란?</button>
+    <button class="ex-btn" onclick="fillQuery('tRCD Timing Fail 원인은?')">tRCD Timing Fail 원인은?</button>
+    <button class="ex-btn" onclick="fillQuery('Burn-in 공정은 왜 필요해?')">Burn-in 공정은 왜 필요해?</button>
+
+    <h3>🗄️ 데이터 조회</h3>
+    <button class="ex-btn" onclick="fillQuery('HY260A01 공정 진행 현황 알려줘')">HY260A01 공정 현황</button>
+    <button class="ex-btn" onclick="fillQuery('HY260A01 레시피 뭐 썼어?')">HY260A01 레시피 조회</button>
+    <button class="ex-btn" onclick="fillQuery('SM260B01 strip 정보 알려줘')">SM260B01 strip 조회</button>
+
+    <h3>📊 원인 분석</h3>
+    <button class="ex-btn" onclick="fillQuery('HY260A01 수율 저하 원인 분석해줘')">HY260A01 원인 분석</button>
+    <button class="ex-btn" onclick="fillQuery('SM260B01 수율 이상 원인 분석해줘')">SM260B01 원인 분석</button>
+
+    <h3>DB 현황</h3>
+    <div class="db-stats" id="db-stats">로딩 중...</div>
+
+    <button class="reset-btn" onclick="resetChat()">대화 초기화</button>
+  </aside>
+
+  <!-- ── Chat area ── -->
+  <div class="chat-area">
+    <div class="messages" id="messages">
+      <div class="empty-state" id="empty-state">
+        👈 왼쪽 예시 질문을 클릭하거나 아래에 직접 입력하세요
+      </div>
+    </div>
+
+    <div id="typing" style="padding: 8px 20px; font-size:12px; color:var(--muted)">
+      <span class="spinner"></span> 에이전트 실행 중...
+    </div>
+
+    <div class="input-area">
+      <div class="input-row">
+        <input id="query-input" type="text"
+               placeholder="예: FDC가 뭐야? / LOT002 수율 저하 원인 분석해줘"
+               onkeydown="if(event.key==='Enter') sendMessage()">
+        <button id="send-btn" onclick="sendMessage()">전송</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Right panel ── -->
+  <div class="right-panel">
+    <div class="panel-tabs">
+      <div class="panel-tab active" onclick="switchTab('log')">🔍 실행 로그</div>
+      <div class="panel-tab" onclick="switchTab('kpi')">📊 KPI</div>
+    </div>
+    <div class="panel-content active" id="tab-log">
+      <div class="live-log" id="live-log">
+        <div class="empty-state">실행 로그가 여기 표시됩니다</div>
+      </div>
+    </div>
+    <div class="panel-content" id="tab-kpi">
+      <div id="kpi-content">
+        <div class="empty-state">질문을 실행하면 KPI가 쌓입니다</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API = '';
+let history = [];   // [{role, content}]
+let currentTab = 'log';
+
+// ── 탭 전환 ──────────────────────────────────────────────────
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.panel-tab').forEach((el, i) => {
+    el.classList.toggle('active', (i === 0 && tab === 'log') || (i === 1 && tab === 'kpi'));
+  });
+  document.getElementById('tab-log').classList.toggle('active', tab === 'log');
+  document.getElementById('tab-kpi').classList.toggle('active', tab === 'kpi');
+  if (tab === 'kpi') loadKpi();
+}
+
+// ── 사이드바 버튼 ─────────────────────────────────────────────
+function fillQuery(text) {
+  document.getElementById('query-input').value = text;
+  document.getElementById('query-input').focus();
+}
+
+// ── 메시지 전송 ───────────────────────────────────────────────
+async function sendMessage() {
+  const input = document.getElementById('query-input');
+  const query = input.value.trim();
+  if (!query) return;
+
+  input.value = '';
+  document.getElementById('send-btn').disabled = true;
+  document.getElementById('typing').style.display = 'block';
+  document.getElementById('empty-state')?.remove();
+
+  appendMessage('user', query);
+
+  // 실행 로그 초기화
+  document.getElementById('live-log').innerHTML = '<div style="color:var(--muted);font-size:12px">실행 중...</div>';
+
+  try {
+    const res = await fetch(`${API}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, history }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+
+    // 히스토리 업데이트
+    history.push({ role: 'user', content: query });
+    history.push({ role: 'assistant', content: data.answer });
+
+    appendAssistantMessage(data);
+    renderLiveLog(data);
+    if (currentTab === 'kpi') loadKpi();
+
+  } catch (e) {
+    appendMessage('assistant-error', '오류가 발생했습니다: ' + e.message);
+  } finally {
+    document.getElementById('send-btn').disabled = false;
+    document.getElementById('typing').style.display = 'none';
+  }
+}
+
+// ── 사용자 메시지 렌더링 ──────────────────────────────────────
+function appendMessage(role, text) {
+  const wrap = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = `msg ${role === 'user' ? 'user' : 'assistant'}`;
+  div.innerHTML = `
+    <div class="avatar">${role === 'user' ? '👤' : '🤖'}</div>
+    <div class="bubble">
+      <div class="bubble-text">${escHtml(text)}</div>
+    </div>`;
+  wrap.appendChild(div);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+// ── 어시스턴트 메시지 렌더링 ─────────────────────────────────
+function appendAssistantMessage(data) {
+  const wrap = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = 'msg assistant';
+
+  const intentLabel = { knowledge: '📚 knowledge', data: '🗄️ data', root_cause: '📊 root_cause' }[data.intent] || data.intent;
+  const lotStr = data.lot_id ? ` | LOT: ${data.lot_id}` : '';
+  const latencyStr = `${data.latency_ms}ms`;
+
+  const plannerHtml = data.planner.length
+    ? `<div class="planner-steps">${data.planner.map(s => `<span class="planner-step">${s}</span>`).join('')}</div>`
+    : '';
+
+  const fnCalls = data.log.filter(e => e.step === 'Function Call');
+  const logHtml = fnCalls.map(e => {
+    const args = Object.values(e.input).map(v => `"${v}"`).join(', ');
+    return `<div class="log-entry"><span class="log-fn">🔧 ${e.tool}(${args})</span></div>`;
+  }).join('');
+  const ragCalls = data.log.filter(e => e.step === 'RAG 검색' || e.step === 'Knowledge 검색');
+  const ragHtml = ragCalls.map(e =>
+    `<div class="log-entry"><span class="log-rag">🔍 ${e.step} (${e.retrieved_chars || e.chars}자)</span></div>`
+  ).join('');
+
+  const hasLog = fnCalls.length > 0 || ragCalls.length > 0;
+  const logToggleId = `log-${Date.now()}`;
+
+  const answerHtml = data.intent === 'root_cause'
+    ? `<div class="report-box">${escHtml(data.answer)}</div>`
+    : `<div class="bubble-text">${escHtml(data.answer)}</div>`;
+
+  div.innerHTML = `
+    <div class="avatar">🤖</div>
+    <div class="bubble">
+      <div class="meta">
+        <span class="badge ${data.intent}">${intentLabel}</span>
+        <span>${data.query_summary}${lotStr}</span>
+        <span style="color:var(--green)">${latencyStr}</span>
+      </div>
+      ${plannerHtml}
+      ${answerHtml}
+      ${hasLog ? `
+        <button class="log-toggle" onclick="toggleLog('${logToggleId}')">🔍 실행 로그 보기</button>
+        <div class="log-panel" id="${logToggleId}">
+          ${logHtml}${ragHtml}
+        </div>` : ''}
+    </div>`;
+  wrap.appendChild(div);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+function toggleLog(id) {
+  document.getElementById(id).classList.toggle('open');
+}
+
+// ── 우측 실행 로그 패널 ───────────────────────────────────────
+function renderLiveLog(data) {
+  const el = document.getElementById('live-log');
+  const entries = data.log.map(e => {
+    if (e.step === 'Router') return `<div class="live-entry"><div class="live-step" style="color:var(--primary)">Router</div><div class="live-detail">intent: ${data.intent} | lot: ${data.lot_id || '-'}</div></div>`;
+    if (e.step === 'Planner') return `<div class="live-entry"><div class="live-step" style="color:var(--orange)">Planner</div><div class="live-detail">${e.steps.join(' → ')}</div></div>`;
+    if (e.step === 'Function Call') {
+      const args = Object.values(e.input).map(v => `"${v}"`).join(', ');
+      return `<div class="live-entry"><div class="live-step" style="color:var(--orange)">Function Call</div><div class="live-detail">${e.tool}(${args})</div></div>`;
+    }
+    if (e.step === 'RAG 검색' || e.step === 'Knowledge 검색')
+      return `<div class="live-entry"><div class="live-step" style="color:var(--purple)">${e.step}</div><div class="live-detail">${e.retrieved_chars || e.chars}자 검색</div></div>`;
+    if (e.step === 'Report 생성')
+      return `<div class="live-entry"><div class="live-step" style="color:var(--green)">Report 생성</div><div class="live-detail">${e.data_keys?.join(', ')}</div></div>`;
+    return '';
+  }).filter(Boolean).join('');
+
+  el.innerHTML = entries || '<div class="empty-state">로그 없음</div>';
+}
+
+// ── KPI 패널 ──────────────────────────────────────────────────
+async function loadKpi() {
+  try {
+    const res = await fetch(`${API}/api/metrics`);
+    const d = await res.json();
+    const el = document.getElementById('kpi-content');
+
+    const total = d.total_queries || 0;
+    const ic = d.intent_counts;
+    const knowledgePct = total ? Math.round((ic.knowledge||0)/total*100) : 0;
+    const dataPct = total ? Math.round((ic.data||0)/total*100) : 0;
+    const rcPct = total ? Math.round((ic.root_cause||0)/total*100) : 0;
+
+    const latencyClass = d.avg_latency_ms < 3000 ? 'latency-fast' : d.avg_latency_ms < 8000 ? 'latency-mid' : 'latency-slow';
+
+    const historyRows = (d.history || []).slice().reverse().map(h => {
+      const lc = h.latency_ms < 3000 ? 'latency-fast' : h.latency_ms < 8000 ? 'latency-mid' : 'latency-slow';
+      return `<tr>
+        <td>${h.ts}</td>
+        <td><span class="badge ${h.intent}" style="font-size:10px">${h.intent}</span></td>
+        <td><span class="latency-badge ${lc}">${h.latency_ms}ms</span></td>
+        <td>${h.fn_calls}</td>
+      </tr>`;
+    }).join('');
+
+    el.innerHTML = `
+      <div class="kpi-grid">
+        <div class="kpi-card"><div class="kpi-value">${total}</div><div class="kpi-label">총 질문 수</div></div>
+        <div class="kpi-card"><div class="kpi-value ${latencyClass}" style="font-size:16px">${d.avg_latency_ms}ms</div><div class="kpi-label">평균 응답시간</div></div>
+        <div class="kpi-card"><div class="kpi-value">${d.function_call_count}</div><div class="kpi-label">Function Calls</div></div>
+        <div class="kpi-card"><div class="kpi-value">${d.rag_search_count}</div><div class="kpi-label">RAG 검색</div></div>
+      </div>
+
+      <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:8px">Intent 분포</div>
+      ${[['knowledge','📚','#3b82f6',knowledgePct], ['data','🗄️','#10b981',dataPct], ['root_cause','📊','#ef4444',rcPct]].map(([k,icon,color,pct])=>`
+        <div class="kpi-bar-wrap">
+          <div class="kpi-bar-label"><span>${icon} ${k}</span><span style="font-weight:700">${ic[k]||0}건 (${pct}%)</span></div>
+          <div class="kpi-bar-track"><div class="kpi-bar-fill" style="width:${pct}%;background:${color}"></div></div>
+        </div>`).join('')}
+
+      <div style="font-size:11px;font-weight:700;color:var(--muted);margin:12px 0 6px">최근 실행 기록</div>
+      ${historyRows ? `<table class="history-table">
+        <thead><tr><th>시각</th><th>Intent</th><th>응답시간</th><th>FnCall</th></tr></thead>
+        <tbody>${historyRows}</tbody>
+      </table>` : '<div class="empty-state" style="padding:20px">기록 없음</div>'}
+
+      <div style="text-align:right;margin-top:10px">
+        <button onclick="resetKpi()" style="font-size:11px;color:var(--muted);background:none;border:none;cursor:pointer">KPI 초기화</button>
+      </div>`;
+  } catch(e) {
+    document.getElementById('kpi-content').innerHTML = '<div class="empty-state">KPI 로드 실패</div>';
+  }
+}
+
+async function resetKpi() {
+  await fetch(`${API}/api/metrics`, { method: 'DELETE' });
+  loadKpi();
+}
+
+// ── 대화 초기화 ───────────────────────────────────────────────
+function resetChat() {
+  history = [];
+  document.getElementById('messages').innerHTML = '<div class="empty-state" id="empty-state">👈 왼쪽 예시 질문을 클릭하거나 아래에 직접 입력하세요</div>';
+  document.getElementById('live-log').innerHTML = '<div class="empty-state">실행 로그가 여기 표시됩니다</div>';
+}
+
+// ── DB 현황 로드 ──────────────────────────────────────────────
+async function loadDbStats() {
+  try {
+    const res = await fetch(`${API}/api/health`);
+    if (res.ok) {
+      document.getElementById('db-stats').innerHTML = `
+        <div class="stat"><span>LOT</span><span>4</span></div>
+        <div class="stat"><span>공정 기록</span><span>13</span></div>
+        <div class="stat"><span>Strip</span><span>3</span></div>
+        <div class="stat"><span>Recipe 항목</span><span>13</span></div>`;
+    }
+  } catch(e) {}
+}
+
+// ── 유틸 ──────────────────────────────────────────────────────
+function escHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+}
+
+// 초기화
+loadDbStats();
+</script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+# API 키
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# DB / 벡터스토어 (빌드 시 자동 생성)
+data/mock/
+data/chroma/
+
+# 모델 (용량 너무 큼)
+models/
+
+# 기타
+.DS_Store
+*.log
