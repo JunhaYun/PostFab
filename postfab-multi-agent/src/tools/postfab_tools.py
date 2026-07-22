@@ -128,6 +128,64 @@ def get_emap(strip_id: str) -> dict:
     }
 
 
+def check_spec_violation(lot_id: str) -> dict:
+    """레시피 스펙(min/max)과 설비 실측값을 자동 비교하여 스펙 이탈 항목을 찾는다."""
+    with _connect() as conn:
+        cur = conn.execute(
+            "SELECT CHECKVALUE FROM tdrecipemapping WHERE LOTID = ? AND ITEMNAME = 'RECIPE'",
+            (lot_id,)
+        )
+        row = cur.fetchone()
+        if not row:
+            return {"error": f"LOT ID '{lot_id}'의 레시피 정보를 찾을 수 없습니다."}
+        recipe_name = row[0]
+
+        specs = conn.execute(
+            "SELECT KEYDATA, VALDATA, VALDATA2 FROM tdrecipemaster WHERE RECEIPE = ? AND ACTIVEFLAG = 'T'",
+            (recipe_name,)
+        ).fetchall()
+        measured = conn.execute(
+            "SELECT EQPID, KEYDATA, VALDATA, TXNTIMESTAMP FROM tdeqphistory WHERE LOTID = ?",
+            (lot_id,)
+        ).fetchall()
+
+    if not measured:
+        return {"recipe_name": recipe_name,
+                "message": f"LOT '{lot_id}'의 설비 실측 이력이 없어 스펙 비교를 할 수 없습니다."}
+
+    def _num(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    spec_map = {k: (mn, mx) for k, mn, mx in specs}
+    violations = []
+    in_spec = []
+    for eqp, key, val, ts in measured:
+        if key not in spec_map:
+            continue
+        mn, mx = spec_map[key]
+        v, lo, hi = _num(val), _num(mn), _num(mx)
+        if v is None or lo is None or hi is None:
+            continue
+        item = {"항목": key, "실측값": val, "min": mn, "max": mx, "설비": eqp, "시각": ts}
+        if v < lo or v > hi:
+            item["이탈유형"] = "MIN 미달" if v < lo else "MAX 초과"
+            violations.append(item)
+        else:
+            in_spec.append(item)
+
+    return {
+        "lot_id": lot_id,
+        "recipe_name": recipe_name,
+        "checked_count": len(in_spec) + len(violations),
+        "violation_count": len(violations),
+        "violations": violations if violations else "스펙 이탈 항목 없음",
+        "in_spec_items": [i["항목"] for i in in_spec],
+    }
+
+
 def get_strip_map(lot_id: str) -> dict:
     """LOT에 속한 Strip 목록 및 각 Strip의 공정 정보 조회."""
     with _connect() as conn:
@@ -201,6 +259,17 @@ TOOL_SPECS = [
         }
     },
     {
+        "name": "check_spec_violation",
+        "description": "LOT ID로 레시피 스펙(min/max)과 설비 실측값을 자동 비교하여 스펙 이탈 항목을 찾습니다. 수율 저하 원인 분석 시 get_recipe/get_eqp_history를 개별 조회하는 대신 이 도구 하나로 이상 여부를 바로 확인할 수 있습니다.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "lot_id": {"type": "string", "description": "검사할 LOT ID (예: HY260A01)"}
+            },
+            "required": ["lot_id"]
+        }
+    },
+    {
         "name": "get_strip_map",
         "description": "LOT ID로 해당 LOT의 Strip 목록과 각 Strip의 위치, 공정, 설비 정보를 조회합니다.",
         "input_schema": {
@@ -221,6 +290,7 @@ TOOL_FUNCTIONS = {
     "get_eqp_history": get_eqp_history,
     "get_strip_map":   get_strip_map,
     "get_emap":        get_emap,
+    "check_spec_violation": check_spec_violation,
 }
 
 
@@ -229,5 +299,8 @@ def execute_tool(name: str, inputs: dict) -> str:
     fn = TOOL_FUNCTIONS.get(name)
     if fn is None:
         return json.dumps({"error": f"Unknown tool: {name}"}, ensure_ascii=False)
-    result = fn(**inputs)
+    try:
+        result = fn(**inputs)
+    except Exception as e:
+        result = {"error": f"{name} 실행 중 오류: {e}"}
     return json.dumps(result, ensure_ascii=False, indent=2)

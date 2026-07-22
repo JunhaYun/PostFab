@@ -150,14 +150,15 @@ with st.sidebar:
             st.session_state["pending_query"] = ex
 
     st.markdown("### 🗄️ 데이터 조회")
-    for ex in ["LOT002 수율 알려줘", "LOT001 정보 조회해줘",
-               "TEST02 FDC 알람 있어?", "TEST02 수율 트렌드 보여줘"]:
+    for ex in ["HY260A01 정보 조회해줘", "HY260A01 공정 진행 현황 알려줘",
+               "HY260A01 레시피 뭐 썼어?", "SM260B01 strip 정보 알려줘"]:
         if st.button(ex, key=f"d_{ex}", use_container_width=True):
             st.session_state["pending_query"] = ex
 
     st.markdown("### 📊 원인 분석")
-    if st.button("LOT002 수율 저하 원인 분석해줘", key="r_main", use_container_width=True):
-        st.session_state["pending_query"] = "LOT002 수율 저하 원인 분석해줘"
+    for ex in ["HY260A01 수율 저하 원인 분석해줘", "SM260B01 수율 이상 원인 분석해줘"]:
+        if st.button(ex, key=f"r_{ex}", use_container_width=True):
+            st.session_state["pending_query"] = ex
 
     st.divider()
     if st.button("대화 초기화", use_container_width=True):
@@ -172,8 +173,8 @@ with st.sidebar:
         _db = os.path.join(os.path.dirname(__file__), "..", "data", "mock", "postfab.db")
         _c = sqlite3.connect(_db)
         col_a, col_b = st.columns(2)
-        col_a.metric("LOT", _c.execute("SELECT COUNT(*) FROM lot_info").fetchone()[0])
-        col_b.metric("알람", _c.execute("SELECT COUNT(*) FROM fdc_alarm").fetchone()[0])
+        col_a.metric("LOT", _c.execute("SELECT COUNT(DISTINCT LOTID) FROM tdlotinfo").fetchone()[0])
+        col_b.metric("Strip", _c.execute("SELECT COUNT(*) FROM tdstripmap").fetchone()[0])
         _c.close()
     except Exception:
         st.warning("DB 미생성")

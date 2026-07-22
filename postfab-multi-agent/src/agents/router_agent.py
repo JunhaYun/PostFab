@@ -5,6 +5,7 @@ intent:
   - knowledge      : 용어/공정 개념 설명
   - data           : LOT/설비 데이터 단순 조회
   - root_cause     : 수율 저하 원인 분석 (Knowledge + Data + Report)
+  - out_of_scope   : 반도체 후공정과 무관한 질문 (정중히 거절)
 """
 import os
 import anthropic
@@ -18,8 +19,10 @@ intent 종류:
 - "knowledge"   : 용어, 개념, 공정 지식 설명 요청 (예: "~가 뭐야?", "~란?", "~의 원리는?")
 - "data"        : LOT/설비 데이터 단순 조회 (예: "~알려줘", "~조회해줘", "~보여줘")
 - "root_cause"  : 특정 LOT의 수율 저하 / 이상 원인 분석 / 리포트 생성 (예: "~원인 분석", "~왜 낮아?", "~리포트", "~이상 원인")
+- "out_of_scope": 반도체 후공정 P&T 업무와 무관한 질문 (예: 날씨, 요리, 일반 코딩, 주식, 잡담 등)
 
 중요: "원인 분석", "분석해줘", "왜", "리포트" 같은 표현이 있으면 root_cause로 분류하세요.
+중요: 반도체 후공정(패키징/테스트/수율/설비/MES)과 관련 없는 질문은 out_of_scope로 분류하세요. "레시피"라는 단어가 있어도 요리 레시피는 out_of_scope입니다 (공정 Recipe만 data/knowledge).
 
 === ICL 예시 (In-Context Learning) ===
 Q: FDC가 뭐야?

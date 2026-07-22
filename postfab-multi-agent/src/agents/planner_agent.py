@@ -15,6 +15,7 @@ SYSTEM_PROMPT = """당신은 반도체 후공정 수율 저하 원인 분석 플
 - get_test_result : 공정별 수율 및 사용 설비 조회
 - get_recipe      : 사용 레시피 및 스펙(항목별 min/max) 조회
 - get_eqp_history : 설비 실측값 조회 (레시피 스펙 이탈 여부 확인)
+- check_spec_violation : 레시피 스펙 vs 설비 실측값 자동 비교 → 스펙 이탈 항목 탐지 (원인 분석 시 권장)
 - get_strip_map   : Strip 목록 및 위치 조회 (Strip 이상 시)
 - get_emap        : Strip별 emap 분석 (불량 위치 패턴 확인)
 - search_knowledge : 공정 지식 검색
@@ -56,6 +57,7 @@ def plan(user_query: str, lot_id: str | None = None) -> list[str]:
         "get_test_result",
         "get_recipe",
         "get_eqp_history",
+        "check_spec_violation",
         "search_knowledge",
         "generate_report",
     ]

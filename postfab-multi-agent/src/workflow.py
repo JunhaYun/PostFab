@@ -187,19 +187,30 @@ def run(user_query: str, history: list | None = None) -> dict:
         {"router": dict, "planner": list, "log": list, "answer": str, "latency_ms": int}
     """
     with metrics.Timer() as timer:
-        final_state = _graph.invoke({
-            "user_query":        user_query,
-            "history":           history or [],
-            "intent":            "",
-            "lot_id":            None,
-            "query_summary":     "",
-            "planner_steps":     [],
-            "collected_data":    {},
-            "knowledge_context": "",
-            "answer":            "",
-            "log":               [],
-            "latency_ms":        0,
-        })
+        try:
+            final_state = _graph.invoke({
+                "user_query":        user_query,
+                "history":           history or [],
+                "intent":            "",
+                "lot_id":            None,
+                "query_summary":     "",
+                "planner_steps":     [],
+                "collected_data":    {},
+                "knowledge_context": "",
+                "answer":            "",
+                "log":               [],
+                "latency_ms":        0,
+            })
+        except Exception as e:
+            # API 오류 등으로 그래프 실행이 실패해도 UI가 죽지 않도록 처리
+            final_state = {
+                "intent": "error",
+                "lot_id": None,
+                "query_summary": "",
+                "planner_steps": [],
+                "log": [{"step": "Error", "detail": str(e)}],
+                "answer": f"요청 처리 중 오류가 발생했습니다: {e}\n잠시 후 다시 시도해주세요.",
+            }
 
     latency = round(timer.elapsed_ms)
     intent = final_state.get("intent", "unknown")

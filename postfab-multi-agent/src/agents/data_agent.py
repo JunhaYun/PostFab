@@ -12,6 +12,9 @@ client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 SYSTEM_PROMPT = """당신은 반도체 후공정 데이터 조회 전문가입니다.
 사용자 요청에 따라 제공된 도구를 사용하여 데이터를 조회하고, 결과를 한국어로 간결하게 요약하세요."""
 
+# agentic loop 반복 상한 — LLM이 도구 호출을 멈추지 않을 때 무한 루프/비용 폭주 방지
+MAX_TURNS = 10
+
 
 def query(user_request: str, log: list | None = None, history: list | None = None) -> tuple[str, dict]:
     """
@@ -23,7 +26,7 @@ def query(user_request: str, log: list | None = None, history: list | None = Non
     messages = (history or []) + [{"role": "user", "content": user_request}]
     collected_data = {}
 
-    while True:
+    for _ in range(MAX_TURNS):
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=2048,
@@ -51,8 +54,10 @@ def query(user_request: str, log: list | None = None, history: list | None = Non
             result_str = execute_tool(tool_name, tool_input)
             result_json = json.loads(result_str)
 
-            # 수집 데이터 저장
-            collected_data[tool_name] = result_json
+            # 수집 데이터 저장 — 같은 도구를 다른 인자로 여러 번 호출해도
+            # (예: get_emap을 strip 3개에 각각 호출) 덮어쓰지 않도록 인자를 키에 포함
+            args_key = ", ".join(str(v) for v in tool_input.values())
+            collected_data[f"{tool_name}({args_key})"] = result_json
 
             if log is not None:
                 log.append({
@@ -71,3 +76,6 @@ def query(user_request: str, log: list | None = None, history: list | None = Non
         # messages 업데이트
         messages.append({"role": "assistant", "content": response.content})
         messages.append({"role": "user", "content": tool_results})
+
+    # MAX_TURNS 초과 — 수집된 데이터만이라도 반환
+    return "도구 호출 한도를 초과했습니다. 지금까지 수집된 데이터로 답변을 구성합니다.", collected_data

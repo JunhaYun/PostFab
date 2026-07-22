@@ -36,14 +36,14 @@ Final Answer (Streamlit UI)
 
 ### 시나리오 2 — LOT 데이터 조회
 ```
-"LOT002 수율 알려줘"
+"HY260A01 수율 알려줘"
 흐름: Router → Data Agent → Function Calling (get_test_result) → 답변
 ```
 
 ### 시나리오 3 — 수율 저하 원인 분석 리포트
 ```
-"LOT002 수율 저하 원인 분석해줘"
-흐름: Router → Planner → Data Agent (5개 함수 호출) + Knowledge Agent → Report Agent → 리포트
+"HY260A01 수율 저하 원인 분석해줘"
+흐름: Router → Planner → Data Agent (다중 함수 호출) + Knowledge Agent → Report Agent → 리포트
 ```
 
 ---
@@ -69,31 +69,36 @@ Data Agent가 Claude tool_use로 호출하는 함수 목록:
 
 | 함수 | 설명 |
 |------|------|
-| `get_lot_info(lot_id)` | LOT 기본 정보 (제품, 공정, 설비, 상태) |
-| `get_test_result(lot_id)` | Final Test 수율, 불량 유형 |
-| `get_fdc_alarm(equipment_id)` | FDC 알람 이력 (코드, 심각도, 시각) |
-| `get_yield_trend(equipment_id)` | 일별 수율 트렌드 |
-| `get_recipe_history(equipment_id)` | Recipe 변경 이력 |
+| `get_lot_info(lot_id)` | LOT 기본 정보 (제품, BOM, 고객사, 상태) |
+| `get_test_result(lot_id)` | 공정 진행 이력, 공정별 수율(YIELD), 사용 설비 |
+| `get_recipe(lot_id)` | 사용 레시피 이름 및 항목별 스펙(min/max) |
+| `get_eqp_history(lot_id, eqp_id)` | 설비 통과 시 실측값 (온도, 압력 등) |
+| `check_spec_violation(lot_id)` | 레시피 스펙 vs 실측값 자동 비교 → 스펙 이탈 항목 탐지 |
+| `get_strip_map(lot_id)` | LOT 소속 Strip 목록 및 위치/공정 정보 |
+| `get_emap(strip_id)` | Strip emap 분석 (pass/fail 분포, 불량 위치 패턴) |
 
 ---
 
 ## Mock DB 구성
 
-`data/mock/postfab.db` (SQLite)
+`data/mock/postfab.db` (SQLite) — `post_data/` 엑셀 파일을 `scripts/create_mock_db.py`로 적재.
 
 | 테이블 | 내용 |
 |--------|------|
-| `lot_info` | LOT 기본 정보 (LOT001~003) |
-| `test_result` | FT1 수율 데이터 (LOT002: 78% — 이상 LOT) |
-| `fdc_alarm` | TEST02 설비 알람 3건 (TEMP_HIGH, CONTACT_FAIL, POWER_NOISE) |
-| `yield_trend` | TEST02 최근 5일 수율 추이 (96.5% → 78% 하락) |
-| `recipe_history` | TEST02 Recipe 변경 이력 2건 (VCCQ 범위, tRCD 마진 조정) |
+| `tdlotinfo` | LOT 기본 정보 (HY260A01~02, SM260B01~02) |
+| `tdtestresult` | 공정 진행 이력 및 공정별 수율 (STEPSEQ 순) |
+| `tdrecipemapping` | LOT ↔ 레시피 매핑 |
+| `tdrecipemaster` | 레시피별 항목 스펙 (min/max) |
+| `tdeqphistory` | 설비 실측값 이력 (스펙 이탈 판단용) |
+| `tdstripmap` | LOT 소속 Strip 목록 및 위치 |
+
+emap 원본 파일: `post_data/emap/*.txt` (Strip별 die pass/fail 맵)
 
 ---
 
 ## RAG 구성
 
-- **임베딩 모델**: `paraphrase-multilingual-MiniLM-L12-v2` (한국어 지원)
+- **임베딩 모델**: `models/postfab-bge-m3-final` (BAAI/bge-m3 후공정 도메인 파인튜닝 버전)
 - **벡터 DB**: ChromaDB (로컬 Persistent)
 - **지식 소스**: `data/docs/postfab_terms.md` (FDC, Yield, tRCD, VCCQ 등 12개 용어)
 - **청크 단위**: `##` 헤더 기준 섹션 분할
