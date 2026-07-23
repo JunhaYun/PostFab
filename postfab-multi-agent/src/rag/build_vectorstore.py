@@ -19,6 +19,7 @@ from chromadb.utils import embedding_functions
 
 from src.rag.config import (CHROMA_DIR, COLLECTION_CARDS, COLLECTION_CHUNKS,
                             CORPUS_DIR, EMBED_MODEL)
+from src.rag.corpus_text import build_card_text, build_chunk_text
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
@@ -41,10 +42,7 @@ def build():
 
     # ── 용어 카드 ──
     cards = load_jsonl("glossary_cards.jsonl")
-    card_texts = []
-    for c in cards:
-        alias = f" ({', '.join(c['aliases'])})" if c["aliases"] else ""
-        card_texts.append(f"{c['term']}{alias}: {c['definition']}")
+    card_texts = [build_card_text(c) for c in cards]
     card_metas = [clean_meta(dict(
         term=c["term"], canonical_term=c["canonical_term"],
         aliases=", ".join(c["aliases"]), source=c["source"],
@@ -53,7 +51,7 @@ def build():
 
     # ── 섹션 청크 ──
     chunks = load_jsonl("article_chunks.jsonl")
-    chunk_texts = [f"{c['context_header']}\n{c['text']}" for c in chunks]
+    chunk_texts = [build_chunk_text(c) for c in chunks]
     chunk_metas = [clean_meta(dict(
         doc_id=c["doc_id"], title=c["context_header"], section=c["section"],
         source=c["source"], source_url=c["source_url"],
