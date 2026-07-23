@@ -130,6 +130,7 @@ def main():
         learning_rate=args.lr,
         fp16=has_cuda,
         save_strategy="epoch",
+        save_total_limit=1,  # 체크포인트를 에폭마다 통째로 남기면 디스크가 금방 참 — 최신 1개만 유지
         logging_steps=10,
         load_best_model_at_end=False,
         report_to="none",
