@@ -29,8 +29,10 @@ Colab 실행 절차 (기존 파인튜닝 경험 재사용):
      build_vectorstore.py 재실행 + 08_eval_retrieval.py --split test 로 after 측정
 
 사용법:
-  python scripts/07_train_embedding.py                     # 기본값
+  python scripts/07_train_embedding.py                     # 기본값 (formal+casual 전체)
   python scripts/07_train_embedding.py --epochs 3 --batch-size 8   # GPU 메모리 부족 시
+  python scripts/07_train_embedding.py --phrasing formal   # ablation: formal만 학습 (-formal 접미사로 저장)
+  python scripts/07_train_embedding.py --phrasing casual   # ablation: casual만 학습 (-casual 접미사로 저장)
 """
 import argparse
 import json
@@ -91,12 +93,18 @@ def build_evaluator(rows: list[dict], id_to_text: dict[str, str], name: str):
 def main():
     ap = argparse.ArgumentParser(description="bge-m3 임베딩 파인튜닝 (MultipleNegativesRankingLoss)")
     ap.add_argument("--base-model", default=DEFAULT_BASE_MODEL)
-    ap.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
+    ap.add_argument("--output-dir", default=None,
+                     help="기본값: ../models/postfab-bge-m3-v2[-<phrasing>] (phrasing이 both면 접미사 없음)")
+    ap.add_argument("--phrasing", choices=["both", "formal", "casual"], default="both",
+                     help="train.jsonl 중 이 phrasing만 학습에 사용 (ablation 실험용, 기본은 전체)")
     ap.add_argument("--epochs", type=int, default=5)
     ap.add_argument("--batch-size", type=int, default=16)
     ap.add_argument("--lr", type=float, default=2e-5)
     ap.add_argument("--warmup-ratio", type=float, default=0.1)
     args = ap.parse_args()
+    if args.output_dir is None:
+        suffix = "" if args.phrasing == "both" else f"-{args.phrasing}"
+        args.output_dir = str(DEFAULT_OUTPUT_DIR) + suffix
 
     import torch
     from sentence_transformers import (SentenceTransformer, SentenceTransformerTrainer,
@@ -111,10 +119,13 @@ def main():
     print(f"[07] 코퍼스: {len(id_to_text)}개 (카드+청크)")
 
     train_rows = load_qa_rows(FINETUNE_DIR / "train.jsonl")
+    if args.phrasing != "both":
+        train_rows = [r for r in train_rows if r["phrasing"] == args.phrasing]
     valid_rows = load_qa_rows(FINETUNE_DIR / "valid.jsonl")
     train_dataset = build_train_dataset(train_rows, id_to_text)
     evaluator = build_evaluator(valid_rows, id_to_text, name="postfab-valid")
-    print(f"[07] train: {len(train_rows)}쌍 / valid(모니터링용): {len(valid_rows)}쌍")
+    print(f"[07] phrasing={args.phrasing} / train: {len(train_rows)}쌍 / valid(모니터링용): {len(valid_rows)}쌍")
+    print(f"[07] 저장 경로: {args.output_dir}")
 
     model = SentenceTransformer(args.base_model)
 
