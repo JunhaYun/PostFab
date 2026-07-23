@@ -34,8 +34,11 @@ Colab 실행 절차 (기존 파인튜닝 경험 재사용):
 """
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
+
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.rag.corpus_text import build_card_text, build_chunk_text  # noqa: E402
