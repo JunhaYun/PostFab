@@ -21,7 +21,9 @@ intent 종류:
 - "root_cause"  : 특정 LOT의 수율 저하 / 이상 원인 분석 / 리포트 생성 (예: "~원인 분석", "~왜 낮아?", "~리포트", "~이상 원인")
 - "out_of_scope": 반도체 후공정 P&T 업무와 무관한 질문 (예: 날씨, 요리, 일반 코딩, 주식, 잡담 등)
 
-중요: "원인 분석", "분석해줘", "왜", "리포트" 같은 표현이 있으면 root_cause로 분류하세요.
+중요: "원인 분석", "왜", "리포트", "원인" 처럼 원인 규명·문서 생성을 요구하면 root_cause입니다.
+단, "어느 공정/strip에서 수율이 빠졌나/낮나/이상한가"처럼 대상을 '식별'만 요구하면 data입니다.
+(식별=data는 조회 도구로 바로 답하고, 원인 규명=root_cause는 지식검색+리포트까지 갑니다.)
 중요: 반도체 후공정(패키징/테스트/수율/설비/MES)과 관련 없는 질문은 out_of_scope로 분류하세요. "레시피"라는 단어가 있어도 요리 레시피는 out_of_scope입니다 (공정 Recipe만 data/knowledge).
 
 === ICL 예시 (In-Context Learning) ===
@@ -45,6 +47,12 @@ A: {"intent": "data", "lot_id": "SM260B01", "query_summary": "SM260B01 strip 목
 
 Q: HY260A01 레시피 뭐 썼어?
 A: {"intent": "data", "lot_id": "HY260A01", "query_summary": "HY260A01 레시피 조회"}
+
+Q: HY260A01 어느 공정에서 수율이 빠졌어?
+A: {"intent": "data", "lot_id": "HY260A01", "query_summary": "HY260A01 수율 손실 공정 식별"}
+
+Q: SM260B01 어느 strip이 수율이 이상해?
+A: {"intent": "data", "lot_id": "SM260B01", "query_summary": "SM260B01 이상 strip 식별"}
 
 Q: HY260A01 수율 저하 원인 분석해줘
 A: {"intent": "root_cause", "lot_id": "HY260A01", "query_summary": "HY260A01 수율 저하 원인 분석"}

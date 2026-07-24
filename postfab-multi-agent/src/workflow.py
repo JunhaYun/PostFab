@@ -93,7 +93,11 @@ def data_node(state: AgentState) -> dict:
     else:
         request = state["user_query"]
 
-    answer, collected = data_agent.query(request, log=log, history=state.get("history"))
+    # root_cause는 answer를 Report Agent가 다시 쓰므로 요약 호출을 생략(collected_data만 필요).
+    answer, collected = data_agent.query(
+        request, log=log, history=state.get("history"),
+        summarize=(intent != "root_cause"),
+    )
     return {
         "answer": answer,          # 시나리오 2는 이게 최종 답변
         "collected_data": collected,
@@ -134,9 +138,19 @@ def route_by_intent(state: AgentState) -> str:
     return "knowledge"
 
 
-def root_cause_needs_knowledge(state: AgentState) -> str:
-    steps = state.get("planner_steps", [])
-    return "knowledge_search" if "search_knowledge" in steps else "report"
+def after_data(state: AgentState) -> str:
+    """data 노드 이후 분기.
+
+    - 시나리오 2(intent=data): 여기서 종료(answer가 최종 답변).
+    - 시나리오 3(intent=root_cause, planner 경유): 지식검색/리포트로 계속.
+    이 둘을 하나의 조건부 엣지로 합쳐야 한다. data 노드에 무조건 엣지(→END)와
+    조건부 엣지를 동시에 걸면 LangGraph가 양쪽으로 fan-out 하여, 단순 조회에도
+    report 노드가 실행돼 answer를 리포트로 덮어쓴다.
+    """
+    if state.get("intent") == "root_cause":
+        steps = state.get("planner_steps", [])
+        return "knowledge_search" if "search_knowledge" in steps else "report"
+    return "end"
 
 
 # ── 그래프 구성 ────────────────────────────────────────────────
@@ -160,15 +174,17 @@ def _build_graph() -> StateGraph:
         "root_cause": "planner",
     })
 
-    # 시나리오 1, 2 종료
+    # 시나리오 1 종료
     g.add_edge("knowledge", END)
-    g.add_edge("data",      END)   # 시나리오 2
 
-    # 시나리오 3 체인
+    # data 노드는 intent에 따라 단 한 방향으로만 분기한다(무조건 엣지 금지).
+    #   - 시나리오 2(data)      → END
+    #   - 시나리오 3(root_cause) → knowledge_search 또는 report
     g.add_edge("planner", "data")  # planner → data (root_cause용 DB 조회)
-    g.add_conditional_edges("data", root_cause_needs_knowledge, {
+    g.add_conditional_edges("data", after_data, {
         "knowledge_search": "knowledge_search",
         "report":           "report",
+        "end":              END,
     })
     g.add_edge("knowledge_search", "report")
     g.add_edge("report", END)

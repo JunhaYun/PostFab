@@ -12,10 +12,12 @@ SYSTEM_PROMPT = """당신은 반도체 후공정 수율 저하 원인 분석 플
 
 사용 가능한 단계:
 - get_lot_info    : LOT 기본 정보 조회
-- get_test_result : 공정별 수율 및 사용 설비 조회
+- analyze_lot_yield : 최종 수율 + 수율 손실 공정 + 최악 공정을 자동 식별 (공정 단위 수율은 이 단계를 우선 사용)
+- get_test_result : 공정별 수율 원본 row 조회 (analyze_lot_yield로 부족할 때 보조)
 - get_recipe      : 사용 레시피 및 스펙(항목별 min/max) 조회
 - get_eqp_history : 설비 실측값 조회 (레시피 스펙 이탈 여부 확인)
 - check_spec_violation : 레시피 스펙 vs 설비 실측값 자동 비교 → 스펙 이탈 항목 탐지 (원인 분석 시 권장)
+- analyze_strip_yield : LOT의 strip별 die 수율 집계 + 최악 strip과 불량 위치 패턴(중앙/가장자리) 자동 식별 (strip 이상이 의심되면 이 단계를 우선 사용)
 - get_strip_map   : Strip 목록 및 위치 조회 (Strip 이상 시)
 - get_emap        : Strip별 emap 분석 (불량 위치 패턴 확인)
 - search_knowledge : 공정 지식 검색
@@ -54,7 +56,7 @@ def plan(user_query: str, lot_id: str | None = None) -> list[str]:
     # 파싱 실패 시 기본 전체 계획
     return [
         "get_lot_info",
-        "get_test_result",
+        "analyze_lot_yield",
         "get_recipe",
         "get_eqp_history",
         "check_spec_violation",
