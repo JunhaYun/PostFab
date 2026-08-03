@@ -1,0 +1,128 @@
+d001	skhynix_newsroom	반도체 후공정(Back End)의 정의
+d002	skhynix_newsroom	반도체 산업 분류 - 팹리스, 파운드리, OSAT, IDM
+d003	skhynix_newsroom	반도체 테스트 분류 - 온도별
+d004	skhynix_newsroom	반도체 테스트 분류 - 동작별 (DC/AC/기능/속도)
+d005	skhynix_newsroom	웨이퍼 테스트 vs 패키지 테스트
+d006	skhynix_newsroom	웨이퍼 테스트 프로세스 - EPM, 번인, 리페어
+d007	skhynix_newsroom	번인(Burn-in)의 원리와 종류
+d008	skhynix_newsroom	리페어(Repair) 종류
+d009	skhynix_newsroom	프로브 카드(Probe Card)와 웨이퍼 프로버
+d010	skhynix_newsroom	패키지 테스트 프로세스
+d011	skhynix_newsroom	수율(Yield)과 데이터시트
+d012	skhynix_newsroom	반도체 패키지의 정의와 레벨
+d013	skhynix_newsroom	반도체 패키지의 4가지 역할
+d014	skhynix_newsroom	리드프레임 타입 패키지
+d015	skhynix_newsroom	서브스트레이트 타입 패키지 (BGA, LGA)
+d016	skhynix_newsroom	팬인(Fan-in) WLCSP
+d017	skhynix_newsroom	팬아웃(Fan-out) WLCSP
+d018	skhynix_newsroom	RDL(ReDistribution Layer, 재배선)
+d019	skhynix_newsroom	플립 칩(Flip Chip) 본딩
+d020	skhynix_newsroom	TSV(Through Silicon Via, 실리콘 관통 전극)
+d021	skhynix_newsroom	HBM(High Bandwidth Memory)
+d022	skhynix_newsroom	PoP(Package on Package) 적층 패키지
+d023	skhynix_newsroom	SiP(System in Package)
+d024	skhynix_newsroom	칩렛(Chiplet) 기술
+d025	skhynix_newsroom	컨벤셔널 패키지 공정 - 백 그라인딩, 웨이퍼 절단
+d026	skhynix_newsroom	컨벤셔널 패키지 공정 - 다이 어태치, 인터커넥션
+d027	skhynix_newsroom	컨벤셔널 패키지 공정 - 몰딩, 마킹, 솔더볼, 싱귤레이션
+d028	skhynix_newsroom	EMC(Epoxy Molding Compound)
+d029	skhynix_newsroom	솔더(Solder)와 논웨트(Non-wet)
+d030	skhynix_newsroom	와이어(Wire) 재료
+d031	skhynix_newsroom	언더필(Underfill)
+d032	skhynix_newsroom	패키지 신뢰성(Reliability)과 JEDEC
+d033	skhynix_newsroom	수명 신뢰성 시험 종류
+d034	skhynix_newsroom	환경 신뢰성 시험 - TC, THB, HAST, HALT
+d035	skhynix_newsroom	기계적 신뢰성 시험 - 충격, 진동, 구부림, 비틀림
+d036	advantest_glossary	Advanced Package (어드밴스드 패키지)
+d037	advantest_glossary	Burn-in Test (번인 테스트)
+d038	advantest_glossary	Core Test (코어 테스트)
+d039	advantest_glossary	DI (Device Interface, 디바이스 인터페이스)
+d040	advantest_glossary	HBM (High Bandwidth Memory) - Advantest 관점
+d041	advantest_glossary	Known Good Die (KGD)
+d042	advantest_glossary	Parallelism (병렬처리)
+d043	advantest_glossary	SLT (System-Level Test, 시스템 레벨 테스트)
+d044	advantest_glossary	Test Time (테스트 타임)
+d045	advantest_glossary	Wafer Prober (웨이퍼 프로버)
+d046	field_terms	WIP (Work In Progress)
+d047	field_terms	Plan (플랜)
+d048	field_terms	Step (스텝)
+d049	field_terms	Track In (트랙 인)
+d050	field_terms	Track Out (트랙 아웃)
+d051	field_terms	Datecode (데이트코드)
+d052	field_terms	Model (모델)
+d053	field_terms	Maker (메이커)
+d054	field_terms	짜뚜리 랏 (잔여 랏)
+d055	postfab_terms	FDC (Fault Detection & Classification)
+d056	postfab_terms	Yield (수율)
+d057	postfab_terms	Yield Trend (수율 트렌드)
+d058	postfab_terms	TEST (Final Test, FT)
+d059	postfab_terms	PKG (Packaging, 패키징)
+d060	postfab_terms	MES (Manufacturing Execution System)
+d061	postfab_terms	LOT
+d062	postfab_terms	Recipe (레시피)
+d063	postfab_terms	Burn-in (번인)
+d064	postfab_terms	Contact Resistance (접촉 저항)
+d065	postfab_terms	VCCQ
+d066	postfab_terms	tRCD (RAS to CAS Delay)
+d067	troubleshooting_kb	다이 크랙 (Die Crack) 트러블슈팅
+d068	troubleshooting_kb	에폭시 보이드 (Epoxy Void) 트러블슈팅
+d069	troubleshooting_kb	다이 틸트/시프트 (Die Tilt/Shift) 트러블슈팅
+d070	troubleshooting_kb	BLT (Bond Line Thickness) 불량 트러블슈팅
+d071	troubleshooting_kb	볼 리프트 (Ball Lift) 트러블슈팅
+d072	troubleshooting_kb	볼 네크 크랙 (Ball Neck Crack) 트러블슈팅
+d073	troubleshooting_kb	와이어 스윕 (Wire Sweep) 트러블슈팅
+d074	troubleshooting_kb	스티치 본드 불량 (Stitch Bond Fail) 트러블슈팅
+d075	troubleshooting_kb	본딩 패드 오염 (Pad Contamination) 트러블슈팅
+d076	troubleshooting_kb	몰드 보이드 (Mold Void) 트러블슈팅
+d077	troubleshooting_kb	인컴플리트 필 (Incomplete Fill) 트러블슈팅
+d078	troubleshooting_kb	몰딩 온도 스펙 이탈 트러블슈팅
+d079	troubleshooting_kb	몰드 플래시 (Mold Flash) 트러블슈팅
+d080	troubleshooting_kb	박리 (Delamination) 트러블슈팅
+d081	troubleshooting_kb	솔더볼 미싱 (Solder Ball Missing) 트러블슈팅
+d082	troubleshooting_kb	솔더볼 브리지 (Solder Ball Bridge) 트러블슈팅
+d083	troubleshooting_kb	쏘잉 치핑 (Sawing Chipping) 트러블슈팅
+d084	troubleshooting_kb	Contact Fail 급증 트러블슈팅
+d085	troubleshooting_kb	VCCQ Margin Fail 트러블슈팅
+d086	troubleshooting_kb	tRCD Timing Fail 트러블슈팅
+d087	troubleshooting_kb	False Fail (위양성) 트러블슈팅
+d088	troubleshooting_kb	번인 후 수율 저하 트러블슈팅
+d089	troubleshooting_kb	마킹 불량 (Marking Fail) 트러블슈팅
+d090	troubleshooting_kb	이물 불량 (Foreign Material) 트러블슈팅
+d091	alarm_codes	ALM-1001 다이어태치 본드 하중 이상 (Bond Force Out of Range)
+d092	alarm_codes	ALM-1002 에폭시 디스펜스 이상 (Epoxy Dispense Error)
+d093	alarm_codes	ALM-1003 다이어태치 비전 정렬 실패 (Vision Alignment Fail)
+d094	alarm_codes	ALM-2001 본딩 파워 이상 (Bond Power Out of Range)
+d095	alarm_codes	ALM-2002 캐필러리 수명 초과 (Capillary Life Over)
+d096	alarm_codes	ALM-2003 본딩 스테이지 온도 이상 (Bond Stage Temperature Error)
+d097	alarm_codes	ALM-2004 와이어 단선 감지 (Wire Break Detect)
+d098	alarm_codes	ALM-3001 몰드 온도 상한 경보 (Mold Temperature High)
+d099	alarm_codes	ALM-3002 몰드 온도 하한 경보 (Mold Temperature Low)
+d100	alarm_codes	ALM-3003 사출 압력 이상 (Transfer Pressure Error)
+d101	alarm_codes	ALM-3004 금형 진공 불량 (Mold Vacuum Error)
+d102	alarm_codes	ALM-4001 테스트 소켓 콘택트 이상 (Socket Contact Error)
+d103	alarm_codes	ALM-4002 테스터 온도 조건 이탈 (Test Temperature Out of Spec)
+d104	alarm_codes	ALM-4003 핸들러 잼 (Handler Jam)
+d105	alarm_codes	ALM-9001 레시피 불일치 (Recipe Mismatch)
+d106	alarm_codes	ALM-9002 설비 PM 기한 초과 (PM Overdue)
+d107	mes_operations	LOT 상태 코드 (Lot Status)
+d108	mes_operations	홀드 유형과 사유 코드 (Hold Type & Reason Code)
+d109	mes_operations	품질 홀드 프로세스 (Quality Hold Process)
+d110	mes_operations	WIP (Work In Progress) 관리와 정체 분석
+d111	mes_operations	Q-time (Queue Time) 관리
+d112	mes_operations	Track In / Track Out 운영
+d113	mes_operations	Track In/Out 누락 및 이력 보정
+d114	mes_operations	LOT 분할과 병합 (Lot Split / Merge)
+d115	mes_operations	출하 프로세스와 출하 홀드
+d116	mes_operations	레시피 변경 관리 (Recipe Change Control)
+d117	mes_operations	설비 인터록 (Equipment Interlock)
+d118	mes_operations	수율 집계 기준 (Yield Calculation)
+d119	yield_analysis	수율 저하 원인 분석 표준 절차
+d120	yield_analysis	설비 요인 vs 자재 요인 구분법
+d121	yield_analysis	스펙 이탈 판정과 영향 평가
+d122	yield_analysis	emap (불량 맵) 기본 개념
+d123	yield_analysis	emap 패턴 - 중앙 집중형 (Center Cluster)
+d124	yield_analysis	emap 패턴 - 에지 집중형 (Edge Concentration)
+d125	yield_analysis	emap 패턴 - 라인/스트라이프형 (Line/Stripe Pattern)
+d126	yield_analysis	emap 패턴 - 랜덤 산발형 (Random Distribution)
+d127	yield_analysis	수율 트렌드 분석 방법
+d128	yield_analysis	설비 간 수율 비교 분석 (Tool-to-Tool Comparison)
