@@ -1,0 +1,76 @@
+{
+  "description": "Data Agent(쿼리 조회/수율 분석) 경로 평가셋. Router intent 분류 + Data Agent 도구 선택 정확도를 측정한다. expected_tools는 any-of(하나라도 호출하면 정답).",
+  "cases": [
+    {
+      "id": "basic-info",
+      "query": "HY260A01 기본 정보 조회해줘",
+      "expected_intent": "data",
+      "expected_tools": ["get_lot_info"],
+      "note": "기본 조회 — 제품/고객사/BOM"
+    },
+    {
+      "id": "process-history",
+      "query": "HY260A01 이 랏이 지나간 공정 알려줘",
+      "expected_intent": "data",
+      "expected_tools": ["get_test_result", "analyze_lot_yield"],
+      "note": "공정 진행 이력(STEPSEQ 순서)"
+    },
+    {
+      "id": "lot-yield",
+      "query": "HY260A01 수율 알려줘",
+      "expected_intent": "data",
+      "expected_tools": ["analyze_lot_yield", "get_test_result"],
+      "note": "LOT/공정 단위 수율 — 분석 도구 우선"
+    },
+    {
+      "id": "lot-yield-where",
+      "query": "HY260A01 어느 공정에서 수율이 빠졌어?",
+      "expected_intent": "data",
+      "expected_tools": ["analyze_lot_yield", "get_test_result"],
+      "note": "손실 공정 식별"
+    },
+    {
+      "id": "strip-yield",
+      "query": "SM260B01 strip 중에 어느 게 수율이 이상해?",
+      "expected_intent": "data",
+      "expected_tools": ["analyze_strip_yield", "get_strip_map", "get_emap"],
+      "note": "strip/die 단위 수율 — strip 분석 도구"
+    },
+    {
+      "id": "strip-list",
+      "query": "SM260B01 strip 목록 보여줘",
+      "expected_intent": "data",
+      "expected_tools": ["get_strip_map", "analyze_strip_yield"],
+      "note": "strip 목록 조회"
+    },
+    {
+      "id": "recipe",
+      "query": "HY260A01 레시피 뭐 썼어?",
+      "expected_intent": "data",
+      "expected_tools": ["get_recipe"],
+      "note": "레시피/스펙 조회"
+    },
+    {
+      "id": "no-data-lot",
+      "query": "HY260A02 수율 알려줘",
+      "expected_intent": "data",
+      "expected_tools": ["analyze_lot_yield", "get_test_result"],
+      "note": "공정 미진행 LOT — 도구는 맞게 부르고 '데이터 없음'을 답해야 함",
+      "expect_graceful_empty": true
+    },
+    {
+      "id": "root-cause",
+      "query": "HY260A01 수율 저하 원인 분석 리포트 만들어줘",
+      "expected_intent": "root_cause",
+      "expected_tools": [],
+      "note": "원인 분석은 root_cause로 라우팅 (Data Agent 단독 아님)"
+    },
+    {
+      "id": "out-of-scope",
+      "query": "오늘 서울 날씨 어때?",
+      "expected_intent": "out_of_scope",
+      "expected_tools": [],
+      "note": "후공정과 무관 — 거절"
+    }
+  ]
+}

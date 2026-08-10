@@ -1,8 +1,18 @@
 # 데이터 / 모델 (용량 큼, 별도 관리)
 /data/
 models/
-postfab-multi-agent/data/
 postfab-multi-agent/post_data/
+
+# data/ 아래는 기본 제외(크롤링 원문 재배포 방지). 단, 손으로 작성한 평가셋만 예외로
+# 추적한다 — 직접 만든 테스트 픽스처라 재배포 문제가 없고, 스크립트로 재생성할 수도
+# 없어서(손으로 쓴 문항) 제외해두면 이 PC에만 남는다. 그 상태로 클론하면 09/10 평가
+# 스크립트가 입력 파일 없음으로 실패한다.
+# 디렉터리 자체를 제외하면 하위 파일을 되살릴 수 없으므로 `data/*` 형태로 쓴다.
+postfab-multi-agent/data/*
+!postfab-multi-agent/data/eval/
+postfab-multi-agent/data/eval/*
+!postfab-multi-agent/data/eval/data_agent_eval.json
+!postfab-multi-agent/data/eval/router_eval.json
 
 # 환경 변수
 .env

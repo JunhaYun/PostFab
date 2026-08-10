@@ -1,0 +1,173 @@
+{
+  "description": "Router intent 분류 정확도 평가셋. knowledge/data/root_cause/out_of_scope 4개 intent를 얼마나 정확히 나누는지 측정한다. history가 있는 케이스는 이전 대화 맥락 이어받기(멀티턴) 분류를 검증한다.",
+  "cases": [
+    {
+      "id": "know-term-1",
+      "query": "WLP가 뭐야?",
+      "expected_intent": "knowledge",
+      "note": "용어 정의"
+    },
+    {
+      "id": "know-term-2",
+      "query": "FDC란?",
+      "expected_intent": "knowledge",
+      "note": "용어 정의"
+    },
+    {
+      "id": "know-concept-1",
+      "query": "플립칩이랑 와이어본딩 차이가 뭐야?",
+      "expected_intent": "knowledge",
+      "note": "개념 비교"
+    },
+    {
+      "id": "know-flow-1",
+      "query": "웨이퍼 테스트 다음에 뭐 해?",
+      "expected_intent": "knowledge",
+      "note": "공정 흐름"
+    },
+    {
+      "id": "know-judgment-1",
+      "query": "HBM에 왜 TSV를 써?",
+      "expected_intent": "knowledge",
+      "note": "판단형 질문"
+    },
+    {
+      "id": "know-recipe-trick",
+      "query": "Recipe에 Reflow 온도 프로파일이 왜 들어가?",
+      "expected_intent": "knowledge",
+      "note": "공정 Recipe 관련 질문 — data(레시피 조회)가 아니라 개념 설명 요청"
+    },
+    {
+      "id": "data-basic-1",
+      "query": "HY260A01 정보 조회해줘",
+      "expected_intent": "data",
+      "note": "단순 조회"
+    },
+    {
+      "id": "data-yield-1",
+      "query": "HY260A01 수율 알려줘",
+      "expected_intent": "data",
+      "note": "수율 단순 조회"
+    },
+    {
+      "id": "data-yield-where",
+      "query": "HY260A01 어느 공정에서 수율이 빠졌어?",
+      "expected_intent": "data",
+      "note": "손실 공정 식별 — root_cause 아님(대상 식별만)"
+    },
+    {
+      "id": "data-strip-where",
+      "query": "SM260B01 어느 strip이 수율이 이상해?",
+      "expected_intent": "data",
+      "note": "이상 strip 식별 — root_cause 아님"
+    },
+    {
+      "id": "data-recipe",
+      "query": "HY260A01 레시피 뭐 썼어?",
+      "expected_intent": "data",
+      "note": "레시피 조회(DB)"
+    },
+    {
+      "id": "data-eqp",
+      "query": "HY260A01 설비 이력 보여줘",
+      "expected_intent": "data",
+      "note": "설비 실측값 조회"
+    },
+    {
+      "id": "root-cause-1",
+      "query": "HY260A01 수율 저하 원인 분석해줘",
+      "expected_intent": "root_cause",
+      "note": "원인 분석 요청"
+    },
+    {
+      "id": "root-cause-2",
+      "query": "SM260B01 이상 원인 리포트 만들어줘",
+      "expected_intent": "root_cause",
+      "note": "리포트 생성 요청"
+    },
+    {
+      "id": "root-cause-why",
+      "query": "HY260A01 왜 수율이 낮아?",
+      "expected_intent": "root_cause",
+      "note": "'왜' — 원인 규명"
+    },
+    {
+      "id": "root-cause-3",
+      "query": "SM260B01 불량이 왜 중앙에 몰렸는지 분석해줘",
+      "expected_intent": "root_cause",
+      "note": "패턴 원인 분석"
+    },
+    {
+      "id": "oos-weather",
+      "query": "오늘 서울 날씨 어때?",
+      "expected_intent": "out_of_scope",
+      "note": "날씨 — 무관"
+    },
+    {
+      "id": "oos-lunch",
+      "query": "오늘 점심 뭐 먹지?",
+      "expected_intent": "out_of_scope",
+      "note": "잡담 — 무관"
+    },
+    {
+      "id": "oos-cooking-recipe",
+      "query": "김치찌개 레시피 알려줘",
+      "expected_intent": "out_of_scope",
+      "note": "'레시피' 단어 포함되지만 요리 레시피 — 공정 Recipe와 구분 필요"
+    },
+    {
+      "id": "oos-stock",
+      "query": "삼성전자 주가 지금 얼마야?",
+      "expected_intent": "out_of_scope",
+      "note": "주식 — 무관"
+    },
+    {
+      "id": "oos-general-coding",
+      "query": "파이썬에서 리스트 정렬하는 방법 알려줘",
+      "expected_intent": "out_of_scope",
+      "note": "일반 코딩 — 후공정과 무관"
+    },
+    {
+      "id": "oos-smalltalk",
+      "query": "너 이름이 뭐야?",
+      "expected_intent": "out_of_scope",
+      "note": "잡담"
+    },
+    {
+      "id": "oos-travel",
+      "query": "제주도 여행 코스 추천해줘",
+      "expected_intent": "out_of_scope",
+      "note": "여행 — 무관"
+    },
+    {
+      "id": "ctx-follow-up-term",
+      "query": "아니 mes.",
+      "history": [
+        {"role": "user", "content": "FDC가 뭐야?"},
+        {"role": "assistant", "content": "FDC(Fault Detection and Classification)는 공정 중 설비 센서 데이터를 실시간으로 감시해 이상을 감지하는 시스템입니다."}
+      ],
+      "expected_intent": "knowledge",
+      "note": "멀티턴 — 직전 질문 정정, 여전히 용어 설명"
+    },
+    {
+      "id": "ctx-follow-up-compare",
+      "query": "그럼 그게 FDC랑 무슨 차이야?",
+      "history": [
+        {"role": "user", "content": "MES가 뭐야?"},
+        {"role": "assistant", "content": "MES(Manufacturing Execution System)는 생산 현장의 설비/공정 데이터를 실시간으로 수집·관리하는 시스템입니다."}
+      ],
+      "expected_intent": "knowledge",
+      "note": "멀티턴 — 이전 용어와 비교"
+    },
+    {
+      "id": "ctx-follow-up-data",
+      "query": "그럼 그 랏 레시피는 뭐 썼어?",
+      "history": [
+        {"role": "user", "content": "HY260A01 수율 알려줘"},
+        {"role": "assistant", "content": "HY260A01의 최종 수율은 96.2%입니다."}
+      ],
+      "expected_intent": "data",
+      "note": "멀티턴 — 이전 LOT 맥락 이어받아 데이터 조회"
+    }
+  ]
+}
