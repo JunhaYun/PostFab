@@ -21,8 +21,9 @@
 전체 + phrasing(formal/casual)별 + source_type별 + question_type별로 나눠 출력·저장.
 
 사용법:
-  python scripts/08_eval_retrieval.py                  # test.jsonl 전체
+  python scripts/08_eval_retrieval.py                  # test.jsonl 전체 (벡터만)
   python scripts/08_eval_retrieval.py --split valid
+  python scripts/08_eval_retrieval.py --retrieval hybrid  # 벡터+BM25 RRF 하이브리드
 """
 import argparse
 import json
@@ -37,6 +38,7 @@ from chromadb.utils import embedding_functions
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.rag.config import CHROMA_DIR, COLLECTION_CARDS, COLLECTION_CHUNKS, EMBED_MODEL  # noqa: E402
+from src.rag.bm25_index import bm25_ranked_ids, rrf_merge  # noqa: E402
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
@@ -47,6 +49,7 @@ OUT_DIR = BASE / "data" / "eval"
 K_LIST = (1, 3, 5)
 NDCG_K = 10
 MAX_K = max(*K_LIST, NDCG_K)
+HYBRID_POOL = 20  # RRF 합치기 전 각 리트리버(벡터/BM25)에서 뽑아올 후보 개수 (MAX_K보다 넉넉히)
 
 
 def load_rows(split: str) -> list[dict]:
@@ -77,6 +80,24 @@ def rank_of(source_id: str, cards_hits: list[tuple], chunks_hits: list[tuple]) -
     return None
 
 
+def vector_ranked_ids(cards_hits: list[tuple], chunks_hits: list[tuple]) -> list[str]:
+    """카드+청크 top-K를 거리순으로 합쳐 id만 순서대로 반환 (rank_of와 동일한 정렬)."""
+    merged = sorted(cards_hits + chunks_hits, key=lambda x: x[1])
+    return [rid for rid, _dist in merged]
+
+
+def hybrid_rank_of(source_id: str, question: str,
+                    cards_hits: list[tuple], chunks_hits: list[tuple]) -> int | None:
+    """벡터 순위 + BM25 순위를 RRF로 합친 뒤 정답의 1-indexed 순위를 반환."""
+    v_ids = vector_ranked_ids(cards_hits, chunks_hits)
+    b_ids = bm25_ranked_ids(question, HYBRID_POOL)
+    merged = rrf_merge([v_ids, b_ids])
+    for rank, rid in enumerate(merged, start=1):
+        if rid == source_id:
+            return rank
+    return None
+
+
 def ndcg_at(rank: int | None, k: int) -> float:
     if rank is None or rank > k:
         return 0.0
@@ -96,13 +117,15 @@ def summarize(rows: list[dict], ranks: list[int | None]) -> dict:
 
 
 def main():
-    ap = argparse.ArgumentParser(description="ChromaDB 순수 벡터 검색으로 Accuracy@k / NDCG@10 측정")
+    ap = argparse.ArgumentParser(description="ChromaDB 벡터 검색(+선택적 BM25 하이브리드)으로 Accuracy@k / NDCG@10 측정")
     ap.add_argument("--split", choices=["train", "valid", "test"], default="test")
     ap.add_argument("--batch-size", type=int, default=64)
+    ap.add_argument("--retrieval", choices=["vector", "hybrid"], default="vector",
+                     help="vector=기존 순수 벡터 검색, hybrid=벡터+BM25 RRF 결합")
     args = ap.parse_args()
 
     rows = load_rows(args.split)
-    print(f"[08] split={args.split} 행={len(rows)} 임베딩 모델={EMBED_MODEL}")
+    print(f"[08] split={args.split} retrieval={args.retrieval} 행={len(rows)} 임베딩 모델={EMBED_MODEL}")
 
     ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=EMBED_MODEL)
     client = chromadb.PersistentClient(path=str(CHROMA_DIR))
@@ -110,15 +133,20 @@ def main():
     chunks_col = client.get_collection(COLLECTION_CHUNKS, embedding_function=ef)
 
     questions = [r["question"] for r in rows]
-    n_results = min(MAX_K, cards_col.count(), chunks_col.count())
+    # hybrid는 RRF로 합치기 전에 후보를 넉넉히 뽑아야 놓치는 게 적다 (MAX_K보다 큰 풀)
+    n_results = HYBRID_POOL if args.retrieval == "hybrid" else min(MAX_K, cards_col.count(), chunks_col.count())
     cards_hits_all = batch_query(cards_col, questions, n_results, args.batch_size)
     chunks_hits_all = batch_query(chunks_col, questions, n_results, args.batch_size)
 
-    ranks = [rank_of(r["source_id"], ch, kh)
-             for r, ch, kh in zip(rows, cards_hits_all, chunks_hits_all)]
+    if args.retrieval == "hybrid":
+        ranks = [hybrid_rank_of(r["source_id"], r["question"], ch, kh)
+                 for r, ch, kh in zip(rows, cards_hits_all, chunks_hits_all)]
+    else:
+        ranks = [rank_of(r["source_id"], ch, kh)
+                 for r, ch, kh in zip(rows, cards_hits_all, chunks_hits_all)]
 
     result = {
-        "embed_model": EMBED_MODEL, "split": args.split, "n": len(rows),
+        "embed_model": EMBED_MODEL, "split": args.split, "retrieval": args.retrieval, "n": len(rows),
         "overall": summarize(rows, ranks),
         "by_phrasing": {}, "by_source_type": {}, "by_question_type": {},
     }
@@ -141,7 +169,8 @@ def main():
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     tag = safe_model_tag(Path(EMBED_MODEL).name or EMBED_MODEL)
-    out_path = OUT_DIR / f"retrieval_{tag}_{args.split}.json"
+    suffix = "" if args.retrieval == "vector" else f"_{args.retrieval}"
+    out_path = OUT_DIR / f"retrieval_{tag}_{args.split}{suffix}.json"
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
     print(f"\n저장 → {out_path}")
