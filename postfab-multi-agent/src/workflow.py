@@ -6,12 +6,13 @@ LangGraph 기반 Multi-Agent Workflow.
     ↓
   router_node
     ↓ (intent에 따라 분기)
-  ┌──────────────────────────────┐
-  │ knowledge   │ data  │ root_cause
-  ↓             ↓       ↓
-knowledge_node  data_node  planner_node
-  ↓             ↓          ↓
-  END           END        data_node (root_cause용)
+  ┌───────────────────────────────────────────┐
+  │ knowledge   │ data  │ root_cause │ out_of_scope
+  ↓             ↓       ↓            ↓
+knowledge_node  data_node  planner_node  out_of_scope_node
+  ↓             ↓          ↓               ↓
+  END           END        data_node       END
+                            (root_cause용)
                               ↓
                            knowledge_search_node
                               ↓
@@ -105,6 +106,18 @@ def data_node(state: AgentState) -> dict:
     }
 
 
+def out_of_scope_node(state: AgentState) -> dict:
+    """반도체 후공정 P&T와 무관한 질문을 정중히 거절."""
+    answer = (
+        "죄송합니다, 저는 반도체 후공정(P&T) 관련 질문만 답변할 수 있습니다. "
+        "공정/설비 용어 설명, LOT·설비 데이터 조회, 수율 저하 원인 분석 등을 문의해 주세요."
+    )
+    return {
+        "answer": answer,
+        "log": [{"step": "OutOfScope", "query": state["user_query"]}],
+    }
+
+
 def knowledge_search_node(state: AgentState) -> dict:
     """시나리오 3 — 공정 지식 RAG 검색."""
     keywords = f"{state['user_query']} 수율 저하 원인 FDC 알람 Recipe"
@@ -135,6 +148,8 @@ def route_by_intent(state: AgentState) -> str:
         return "data"
     elif intent == "root_cause":
         return "root_cause"
+    elif intent == "out_of_scope":
+        return "out_of_scope"
     return "knowledge"
 
 
@@ -164,18 +179,21 @@ def _build_graph() -> StateGraph:
     g.add_node("planner",          planner_node)
     g.add_node("knowledge_search", knowledge_search_node)
     g.add_node("report",           report_node)
+    g.add_node("out_of_scope",     out_of_scope_node)
 
     g.set_entry_point("router")
 
     # router → 분기
     g.add_conditional_edges("router", route_by_intent, {
-        "knowledge":  "knowledge",
-        "data":       "data",
-        "root_cause": "planner",
+        "knowledge":    "knowledge",
+        "data":         "data",
+        "root_cause":   "planner",
+        "out_of_scope": "out_of_scope",
     })
 
     # 시나리오 1 종료
     g.add_edge("knowledge", END)
+    g.add_edge("out_of_scope", END)
 
     # data 노드는 intent에 따라 단 한 방향으로만 분기한다(무조건 엣지 금지).
     #   - 시나리오 2(data)      → END
