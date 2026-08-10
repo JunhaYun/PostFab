@@ -237,12 +237,26 @@ def analyze_lot_yield(lot_id: str) -> dict:
     numbered = [r for r in rows if r.get("YIELD_NUM") is not None]
     worst = min(numbered, key=lambda r: r["YIELD_NUM"]) if numbered else None
 
+    # 검사에서 분류된 불량 유형(tdeqphistory의 DEFECT_TYPE 키). 수율 숫자만으로는
+    # 원인 지식을 검색할 단서가 없으므로, 불량명을 여기서 함께 돌려준다.
+    defect_type = None
+    if worst is not None:
+        with _connect() as conn:
+            hit = conn.execute(
+                "SELECT VALDATA FROM tdeqphistory "
+                "WHERE LOTID = ? AND EQPID = ? AND KEYDATA = 'DEFECT_TYPE' LIMIT 1",
+                (lot_id, worst["EQPID"]),
+            ).fetchone()
+        if hit:
+            defect_type = hit[0]
+
     return {
         "lot_id": lot_id,
         "step_count": len(rows),
         "progression": [r["STEPNAME"] for r in rows],   # 지나간 공정 순서
         "lot_final_yield": f"{lot_yield}%" if lot_yield is not None else "N/A",
         "loss_steps": loss_steps if loss_steps else "수율 손실 공정 없음 (전 공정 정상)",
+        "defect_type": defect_type,   # 없으면 None (미분류 또는 정상 LOT)
         "worst_step": None if worst is None else {
             "공정": worst["STEPNAME"], "설비": worst["EQPID"],
             "수율": worst["YIELD"], "REJECT": worst["REJECT"],

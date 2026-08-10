@@ -118,9 +118,49 @@ def out_of_scope_node(state: AgentState) -> dict:
     }
 
 
+def _search_terms_from_data(collected: dict) -> list[str]:
+    """수집 데이터에서 지식 검색에 쓸 단서(공정명/스펙 이탈 항목/불량명)를 뽑는다.
+
+    고정 키워드("수율 저하 원인 FDC 알람 Recipe")만으로 검색하면 'FDC'/'Recipe' 용어 카드와
+    일반적인 수율 분석 가이드만 걸리고, 정작 원인을 설명하는 트러블슈팅/알람 카드는 못 찾는다.
+    Data Agent가 실제로 찾아낸 값을 검색어에 넣어야 해당 카드가 상위로 올라온다.
+    """
+    terms: list[str] = []
+    for result in collected.values():
+        if not isinstance(result, dict):
+            continue
+        # 스펙 이탈 항목 — 원인 카드/알람 코드를 직접 가리키는 가장 강한 단서
+        for v in result.get("violations", []) or []:
+            if isinstance(v, dict):
+                terms += [str(v.get("항목", "")), str(v.get("이탈유형", ""))]
+        # 수율이 가장 많이 빠진 공정 + 관측된 불량 유형
+        worst = result.get("worst_step")
+        if isinstance(worst, dict):
+            terms.append(str(worst.get("공정", "")))
+        for key in ("defect_type", "fail_pattern"):
+            if result.get(key):
+                terms.append(str(result[key]))
+        # get_eqp_history는 항목/실측값 리스트로 오므로 DEFECT_TYPE 항목을 따로 집는다
+        for m in result.get("measured_values", []) or []:
+            if isinstance(m, dict) and m.get("항목") == "DEFECT_TYPE":
+                terms.append(str(m.get("실측값", "")))
+    # 중복 제거(순서 유지)
+    seen, out = set(), []
+    for t in terms:
+        t = t.strip()
+        if t and t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out
+
+
 def knowledge_search_node(state: AgentState) -> dict:
     """시나리오 3 — 공정 지식 RAG 검색."""
-    keywords = f"{state['user_query']} 수율 저하 원인 FDC 알람 Recipe"
+    terms = _search_terms_from_data(state.get("collected_data", {}))
+    if terms:
+        keywords = f"{' '.join(terms)} 수율 저하 원인 조치"
+    else:
+        keywords = f"{state['user_query']} 수율 저하 원인 FDC 알람 Recipe"
     context = retrieve_as_context(keywords, n_results=4)
     return {
         "knowledge_context": context,
@@ -163,8 +203,11 @@ def after_data(state: AgentState) -> str:
     report 노드가 실행돼 answer를 리포트로 덮어쓴다.
     """
     if state.get("intent") == "root_cause":
-        steps = state.get("planner_steps", [])
-        return "knowledge_search" if "search_knowledge" in steps else "report"
+        # 지식 검색은 root_cause 파이프라인의 고정 단계다(상단 그래프 구조 참조).
+        # 예전엔 planner가 "search_knowledge"를 계획에 넣었을 때만 실행했는데,
+        # planner가 이를 누락하면 리포트가 지식베이스 근거 없이 LLM 내부 지식만으로
+        # 작성됐다. 검색 자체는 LLM 호출이 없어 비용도 사실상 없으므로 항상 태운다.
+        return "knowledge_search"
     return "end"
 
 
