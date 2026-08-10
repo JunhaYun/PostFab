@@ -36,6 +36,16 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(BASE, "data", "mock", "postfab.db")
 EVENTS_PATH = os.path.join(BASE, "data", "eval", "simulated_events.json")
+EMAP_DIR = os.path.join(BASE, "post_data", "emap")   # get_emap이 읽는 경로
+
+# emap 격자 — 원본 파일(260628_STR340FG_*.txt)과 동일 규격.
+# 한 행의 문자열 길이 = COLUMNS × BLOCKS = 68, '1'=양품 '0'=불량.
+EMAP_ROWS, EMAP_COLS, EMAP_BLOCKS = 20, 34, 2
+EMAP_WIDTH = EMAP_COLS * EMAP_BLOCKS
+
+STRIPS_PER_LOT = 3           # 원본 SM260B01과 동일
+STRIP_LOT_RATIO = 0.05       # strip을 붙일 LOT 비율(전 LOT에 emap을 만들면 파일이 9천 장)
+SIM_STRIP_TAG = "STRSIM"     # 생성 emap 파일 식별자(재실행 시 이 파일만 지운다)
 
 # ── 공정 순서 (PROCESS_PLAN) ───────────────────────────────────────────────
 # origin="mes"    : 기존 mock DB(tdtestresult)에 실제로 존재하던 스텝 — 이름/의미 그대로 유지
@@ -112,6 +122,80 @@ def datecode(dt: datetime) -> str:
     return f"{dt.strftime('%y')}{dt.isocalendar().week:02d}"
 
 
+# ── emap 패턴 생성 ─────────────────────────────────────────────────────────
+# 각 패턴은 ⓪단계 지식베이스 「수율 분석 가이드 > emap 패턴 - ...」 카드와 1:1 대응한다.
+# 카드에 적힌 원인(게이트 수지 흐름 / 에지 접촉 응력 / 멀티헤드 특정 헤드 / 확률적 이물)을
+# 그대로 재현해야 분석 결과가 카드 내용과 맞물린다.
+
+def _blank_grid() -> list[list[str]]:
+    return [["1"] * EMAP_WIDTH for _ in range(EMAP_ROWS)]
+
+
+def _apply_center(grid, rng):
+    """중앙 집중형 — 몰드 게이트 수지 흐름 불균일. 가운데 직사각형 영역이 통째로 불량."""
+    r0, r1 = rng.randint(6, 8), rng.randint(12, 14)
+    c0, c1 = rng.randint(16, 20), rng.randint(40, 46)
+    for r in range(r0, r1 + 1):
+        for c in range(c0, c1 + 1):
+            grid[r][c] = "0"
+
+
+def _apply_edge(grid, rng):
+    """에지 집중형 — 핸들링 접촉 손상·캐비티 가장자리 충진 부족. 바깥 테두리가 불량."""
+    depth = rng.randint(1, 2)
+    for r in range(EMAP_ROWS):
+        for c in range(EMAP_WIDTH):
+            if r < depth or r >= EMAP_ROWS - depth or c < depth or c >= EMAP_WIDTH - depth:
+                grid[r][c] = "0"
+
+
+def _apply_stripe(grid, rng):
+    """라인/스트라이프형 — 멀티헤드 본더의 특정 헤드 이상.
+
+    카드 예시(8헤드 중 3번 헤드 불량 → 8칸 간격 규칙적 불량)를 그대로 재현한다.
+    간격이 헤드 수와 일치해야 "좌표 간격으로 원인을 좁힌다"는 분석이 성립한다.
+    """
+    n_heads = rng.choice([4, 8])
+    bad_head = rng.randrange(n_heads)
+    for r in range(EMAP_ROWS):
+        for c in range(bad_head, EMAP_WIDTH, n_heads):
+            grid[r][c] = "0"
+
+
+def _apply_random(grid, rng, rate: float = 0.03):
+    """랜덤 산발형 — 파티클성 이물·자재 산포 등 확률적 요인. 위치 경향 없음."""
+    for r in range(EMAP_ROWS):
+        for c in range(EMAP_WIDTH):
+            if rng.random() < rate:
+                grid[r][c] = "0"
+
+
+EMAP_PATTERNS = {
+    "중앙 집중형 (Center Cluster)":      _apply_center,
+    "에지 집중형 (Edge Concentration)":  _apply_edge,
+    "라인/스트라이프형 (Line/Stripe)":   _apply_stripe,
+    "랜덤 산발형 (Random Distribution)": _apply_random,
+}
+
+
+def render_emap(strip_id: str, lot_id: str, grid: list[list[str]]) -> str:
+    """원본 emap txt와 동일한 포맷으로 직렬화 (get_emap이 0/1 줄만 골라 읽는다)."""
+    lines = [
+        "STRIP MAP = {",
+        f'STRIP_ID = "{strip_id}"',
+        f"ROWS = {EMAP_ROWS}",
+        f"COLUMNS = {EMAP_COLS}",
+        f"BLOCKS = {EMAP_BLOCKS}",
+        'SUPPLER_NAME = "NA"',
+        'DEVICE_NUMBER = "NA"',
+        f'LOT_ID = "{lot_id}"',
+        "MAP = {",
+    ]
+    lines += ["".join(row) for row in grid]
+    lines += ["}", "}"]
+    return "\n".join(lines) + "\n"
+
+
 class Simulator:
     def __init__(self, n_lots: int, months: int, seed: int):
         self.rng = random.Random(seed)
@@ -122,7 +206,9 @@ class Simulator:
         self.end = self.start + timedelta(days=30 * months)
 
         self.lots, self.testresults, self.eqphistory, self.recipemapping = [], [], [], []
+        self.stripmap, self.emaps = [], {}      # emaps: {strip_id: 파일 본문}
         self.events = []
+        self.strip_events = []
         self.eqp_pool = self._build_eqp_pool()
         self.recipe_spec = {}   # KEYDATA -> (min, max)  — DB의 tdrecipemaster에서 읽음
 
@@ -191,6 +277,24 @@ class Simulator:
                 "affected_lots": [],
             })
 
+        # strip(die) 단위 사건 — LOT/공정 수율이 아니라 emap 불량 위치 패턴으로 드러난다.
+        # 대응 문서는 트러블슈팅 카드가 아니라 「수율 분석 가이드」의 emap 패턴 카드다.
+        for offset, pattern in enumerate(EMAP_PATTERNS):
+            # strip이 붙는 LOT은 전체의 STRIP_LOT_RATIO뿐이라 창을 짧게 잡으면
+            # 패턴당 표본이 2~3개까지 떨어진다. 평가 문항을 뽑을 만큼 확보하려고 3주로 잡음.
+            s, e = window(0.18 + offset * 0.2, 21)
+            self.strip_events.append({
+                "event_id": f"SIM-STRIP-{offset + 1:02d}",
+                "type": "strip_pattern",
+                "step": "AS_Inspection",
+                "emap_pattern": pattern,
+                "start": s.strftime("%Y-%m-%d"),
+                "end": e.strftime("%Y-%m-%d"),
+                "related_doc": f"[수율 분석 가이드] > emap 패턴 - {pattern}",
+                "_start_dt": s, "_end_dt": e,
+                "affected_lots": [],
+            })
+
     def _event_for(self, step: str, eqp: str, when: datetime):
         for ev in self.events:
             if ev["step"] == step and ev["eqp_id"] == eqp and ev["_start_dt"] <= when <= ev["_end_dt"]:
@@ -219,6 +323,8 @@ class Simulator:
             self._make_lot_row(i, lot_id, customer, start_dt)
             self._make_route(i, lot_id, product, plan, start_dt)
             self._make_recipe_mapping(i, lot_id, start_dt)
+            if self.rng.random() < STRIP_LOT_RATIO:
+                self._make_strips(i, lot_id, product, plan, start_dt)
 
     def _make_lot_row(self, i: int, lot_id: str, customer: str, start_dt: datetime):
         family = "Test" if self.rng.random() < 0.08 else "Assembly"
@@ -305,6 +411,38 @@ class Simulator:
                 key, round(val, 2) if isinstance(val, float) else val,
             ))
 
+    def _strip_event_for(self, when: datetime):
+        for ev in self.strip_events:
+            if ev["_start_dt"] <= when <= ev["_end_dt"]:
+                return ev
+        return None
+
+    def _make_strips(self, i: int, lot_id: str, product: str, plan: str, start_dt: datetime):
+        """LOT에 strip 3매와 각 strip의 emap을 만든다.
+
+        평소 strip은 산발 불량이 조금 있는 정상 상태이고, 사건 구간에 걸린 LOT은
+        strip 한 매에만 해당 패턴을 심는다 — 한 매만 이상해야 analyze_strip_yield의
+        "최악 strip 식별"이 의미를 갖는다(원본 SM260B01도 3매 중 1매만 불량).
+        """
+        ev = self._strip_event_for(start_dt)
+        bad_pos = self.rng.randint(1, STRIPS_PER_LOT) if ev else None
+        if ev and lot_id not in ev["affected_lots"]:
+            ev["affected_lots"].append(lot_id)
+
+        eqp = self.rng.choice(self.eqp_pool["AS_Inspection"])
+        for pos in range(1, STRIPS_PER_LOT + 1):
+            strip_id = f"{start_dt.strftime('%y%m%d')}_{SIM_STRIP_TAG}{i:05d}_{pos:02d}"
+            grid = _blank_grid()
+            _apply_random(grid, self.rng, rate=0.004)      # 기저 산발 불량
+            if pos == bad_pos:
+                EMAP_PATTERNS[ev["emap_pattern"]](grid, self.rng)
+
+            self.emaps[strip_id] = render_emap(strip_id, lot_id, grid)
+            self.stripmap.append((
+                f"{i:06d}sm.sim.{pos}", strip_id, f"{lot_id}_{pos:02d}", None, lot_id,
+                1, "Active", "Assembly", plan, "AS_Inspection", eqp, pos, product,
+            ))
+
     def _make_recipe_mapping(self, i: int, lot_id: str, start_dt: datetime):
         self.recipemapping.append((
             f"{i:06d}rc.sim", lot_id, self.rng.choice(OPERATORS),
@@ -335,11 +473,15 @@ def purge_previous(conn):
     lot_ids = [r[0] for r in conn.execute("SELECT LOTID FROM _sim_lots")]
     if not lot_ids:
         return 0
-    for table in ("tdlotinfo", "tdtestresult", "tdeqphistory", "tdrecipemapping"):
+    for table in ("tdlotinfo", "tdtestresult", "tdeqphistory", "tdrecipemapping", "tdstripmap"):
         conn.execute(
             f"DELETE FROM {table} WHERE LOTID IN (SELECT LOTID FROM _sim_lots)"
         )
     conn.execute("DELETE FROM _sim_lots")
+    # 생성 emap 파일 제거 — 원본 3장(260628_STR340FG_*)은 태그가 없으므로 남는다
+    for name in os.listdir(EMAP_DIR) if os.path.isdir(EMAP_DIR) else []:
+        if SIM_STRIP_TAG in name and name.endswith(".txt"):
+            os.remove(os.path.join(EMAP_DIR, name))
     return len(lot_ids)
 
 
@@ -363,6 +505,8 @@ def main():
     sim.generate()
     print(f"[11] 생성: LOT {len(sim.lots):,} / 공정이력 {len(sim.testresults):,} "
           f"/ 설비실측 {len(sim.eqphistory):,} / 레시피매핑 {len(sim.recipemapping):,}")
+    print(f"[11] strip {len(sim.stripmap):,}매 / emap 파일 {len(sim.emaps):,}장 "
+          f"(LOT {len(sim.stripmap) // STRIPS_PER_LOT:,}개에 부착)")
     print(f"[11] 기간: {sim.start:%Y-%m-%d} ~ {sim.end:%Y-%m-%d} ({args.months}개월), "
           f"공정 {len(PROCESS_PLAN)}단계")
 
@@ -372,6 +516,9 @@ def main():
         print(f"  {ev['event_id']} {ev['type']:<24} {ev['step']:<16} {ev['eqp_id']:<8} "
               f"{ev['start']}~{ev['end']} 하락 {ev['yield_drop_pct']}%p "
               f"원인={cause} LOT {len(ev['affected_lots'])}개")
+    for ev in sim.strip_events:
+        print(f"  {ev['event_id']} {ev['type']:<24} {ev['emap_pattern']:<34} "
+              f"{ev['start']}~{ev['end']} LOT {len(ev['affected_lots'])}개")
 
     if args.dry_run:
         print("\n[11] --dry-run: DB에 쓰지 않고 종료")
@@ -386,6 +533,12 @@ def main():
     conn.executemany(f"INSERT INTO tdtestresult VALUES ({','.join('?' * 17)})", sim.testresults)
     conn.executemany(f"INSERT INTO tdeqphistory VALUES ({','.join('?' * 7)})", sim.eqphistory)
     conn.executemany(f"INSERT INTO tdrecipemapping VALUES ({','.join('?' * 7)})", sim.recipemapping)
+    conn.executemany(f"INSERT INTO tdstripmap VALUES ({','.join('?' * 13)})", sim.stripmap)
+
+    os.makedirs(EMAP_DIR, exist_ok=True)
+    for strip_id, body in sim.emaps.items():
+        with open(os.path.join(EMAP_DIR, f"{strip_id}.txt"), "w", encoding="utf-8") as f:
+            f.write(body)
     conn.executemany(
         "INSERT INTO _sim_lots VALUES (?,?,?)",
         [(row[1], args.seed, datetime.now().isoformat(timespec="seconds")) for row in sim.lots],
@@ -404,6 +557,9 @@ def main():
             ],
             "events": [
                 {k: v for k, v in ev.items() if not k.startswith("_")} for ev in sim.events
+            ],
+            "strip_events": [
+                {k: v for k, v in ev.items() if not k.startswith("_")} for ev in sim.strip_events
             ],
         }, f, ensure_ascii=False, indent=2)
 

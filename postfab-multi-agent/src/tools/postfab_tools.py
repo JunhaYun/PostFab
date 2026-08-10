@@ -265,23 +265,50 @@ def analyze_lot_yield(lot_id: str) -> dict:
 
 
 def _classify_fail_location(rows: list[str]) -> str:
-    """emap의 fail(0) 위치가 중앙에 몰렸는지 가장자리인지 분류한다."""
+    """emap의 fail(0) 분포 패턴을 분류한다.
+
+    반환값은 지식베이스 「수율 분석 가이드 > emap 패턴」 카드 4종과 대응한다:
+    중앙 집중 / 가장자리 분포 / 라인·스트라이프 분포 / 산발 분포.
+
+    판정은 불량의 최외곽 경계가 아니라 '밀도'로 한다. 실제 emap에는 어디든 배경 불량이
+    몇 개씩 있는데, 경계 기준으로 보면 구석에 찍힌 불량 하나 때문에 중앙 집중 클러스터가
+    전체 범위로 잡혀 오분류된다.
+    """
     n_rows = len(rows)
     n_cols = max((len(r) for r in rows), default=0)
     fails = [(i, j) for i, r in enumerate(rows) for j, c in enumerate(r) if c == "0"]
     if not fails:
         return "불량 없음"
+    total = len(fails)
 
-    rmin = min(i for i, _ in fails); rmax = max(i for i, _ in fails)
-    cmin = min(j for _, j in fails); cmax = max(j for _, j in fails)
-    touches_edge = (rmin == 0 or cmin == 0 or rmax == n_rows - 1 or cmax == n_cols - 1)
+    # ① 라인/스트라이프 — 멀티헤드 설비의 특정 헤드/사이트 이상은 일정 간격으로 나타난다.
+    #    불량 열이 어떤 주기 k의 한 잔여류에 몰려 있으면 그 간격이 곧 헤드 수 단서가 된다.
+    for k in (8, 4, 6, 3, 2):
+        if n_cols < k * 3:
+            continue
+        for r in range(k):
+            hits = sum(1 for _, j in fails if j % k == r)
+            if hits >= total * 0.8 and len({j for _, j in fails if j % k == r}) >= 3:
+                return "라인·스트라이프 분포"
 
-    # 불량 bounding box가 그리드 가운데 60% 안에 들어오면 '중앙 집중'
-    in_mid = (rmin >= n_rows * 0.2 and rmax <= n_rows * 0.8
-              and cmin >= n_cols * 0.2 and cmax <= n_cols * 0.8)
-    if in_mid and not touches_edge:
+    # ② 중앙 vs 가장자리 — 면적 대비 밀도 비율로 본다.
+    #    가장자리 띠는 그 자체로 전체 면적의 30~40%를 차지하므로, 단순히 "불량의 절반이
+    #    가장자리에 있다"는 조건은 완전 무작위 분포도 통과해버린다. 기대치(면적 비율)보다
+    #    유의미하게 높을 때만 편중으로 본다.
+    def _is_edge(i: int, j: int) -> bool:
+        return (i < n_rows * 0.1 or i >= n_rows * 0.9
+                or j < n_cols * 0.1 or j >= n_cols * 0.9)
+
+    edge_cells = sum(1 for i in range(n_rows) for j in range(n_cols) if _is_edge(i, j))
+    edge_area_ratio = edge_cells / (n_rows * n_cols) if n_rows and n_cols else 0
+
+    in_center = sum(1 for i, j in fails
+                    if n_rows * 0.2 <= i <= n_rows * 0.8 and n_cols * 0.2 <= j <= n_cols * 0.8)
+    on_edge = sum(1 for i, j in fails if _is_edge(i, j))
+
+    if in_center >= total * 0.7:
         return "중앙 집중"
-    if touches_edge:
+    if edge_area_ratio and on_edge / total >= edge_area_ratio * 1.6:
         return "가장자리 분포"
     return "산발 분포"
 

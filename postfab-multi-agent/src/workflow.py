@@ -118,6 +118,16 @@ def out_of_scope_node(state: AgentState) -> dict:
     }
 
 
+# analyze_strip_yield의 판정 용어와 지식베이스 emap 패턴 카드의 제목 용어가 다르다
+# (판정 "가장자리 분포" vs 카드 "에지 집중형"). 검색이 카드에 닿도록 카드 쪽 표현을 덧붙인다.
+_EMAP_CARD_TERMS = {
+    "중앙 집중":          ["중앙 집중형", "Center Cluster"],
+    "가장자리 분포":      ["에지 집중형", "Edge Concentration"],
+    "라인·스트라이프 분포": ["라인/스트라이프형", "Line Stripe", "멀티헤드"],
+    "산발 분포":          ["랜덤 산발형", "Random Distribution"],
+}
+
+
 def _search_terms_from_data(collected: dict) -> list[str]:
     """수집 데이터에서 지식 검색에 쓸 단서(공정명/스펙 이탈 항목/불량명)를 뽑는다.
 
@@ -144,6 +154,11 @@ def _search_terms_from_data(collected: dict) -> list[str]:
         for m in result.get("measured_values", []) or []:
             if isinstance(m, dict) and m.get("항목") == "DEFECT_TYPE":
                 terms.append(str(m.get("실측값", "")))
+        # strip 분석의 불량 위치 패턴 — emap 패턴 카드를 가리키는 단서
+        worst_strip = result.get("worst_strip")
+        if isinstance(worst_strip, dict) and worst_strip.get("fail_location"):
+            loc = str(worst_strip["fail_location"])
+            terms += ["emap 패턴", loc, *_EMAP_CARD_TERMS.get(loc, [])]
     # 중복 제거(순서 유지)
     seen, out = set(), []
     for t in terms:
