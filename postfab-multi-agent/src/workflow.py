@@ -27,7 +27,7 @@ import operator
 from langgraph.graph import StateGraph, END
 
 from src.agents import router_agent, planner_agent, knowledge_agent, data_agent, report_agent
-from src.rag.retriever import retrieve_as_context
+from src.rag.retriever import format_context, retrieve, retrieve_as_context
 from src import metrics
 
 
@@ -176,10 +176,14 @@ def knowledge_search_node(state: AgentState) -> dict:
         keywords = f"{' '.join(terms)} 수율 저하 원인 조치"
     else:
         keywords = f"{state['user_query']} 수율 저하 원인 FDC 알람 Recipe"
-    context = retrieve_as_context(keywords, n_results=4)
+    docs = retrieve(keywords, n_results=4)
+    context = format_context(docs)
     return {
         "knowledge_context": context,
-        "log": [{"step": "Knowledge 검색", "query": keywords, "chars": len(context)}],
+        # context_titles는 평가(13번)에서 "리포트의 원인 설명이 지식베이스에서 온 것인지,
+        # LLM 내부 지식인지"를 구분하는 데 쓴다.
+        "log": [{"step": "Knowledge 검색", "query": keywords, "chars": len(context),
+                 "context_titles": [d["title"] for d in docs]}],
     }
 
 

@@ -106,9 +106,8 @@ def retrieve(query: str, n_results: int = 3) -> list[dict]:
     return results[:n_results + len([r for r in results if r["kind"] == "glossary_exact"])]
 
 
-def retrieve_as_context(query: str, n_results: int = 3) -> str:
-    """검색 결과를 LLM 컨텍스트용 문자열로 반환 (기존 인터페이스 유지)."""
-    docs = retrieve(query, n_results)
+def format_context(docs: list[dict]) -> str:
+    """검색 결과를 LLM 컨텍스트용 문자열로 직렬화."""
     if not docs:
         return "관련 지식을 찾을 수 없습니다."
     parts = []
@@ -116,3 +115,8 @@ def retrieve_as_context(query: str, n_results: int = 3) -> str:
         src = f" (출처: {d['source_url']})" if d["source_url"] else ""
         parts.append(f"[{d['title']}]{src}\n{d['content']}")
     return "\n\n---\n\n".join(parts)
+
+
+def retrieve_as_context(query: str, n_results: int = 3) -> str:
+    """검색 결과를 LLM 컨텍스트용 문자열로 반환 (기존 인터페이스 유지)."""
+    return format_context(retrieve(query, n_results))
