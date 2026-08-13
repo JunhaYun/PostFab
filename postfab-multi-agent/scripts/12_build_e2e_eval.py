@@ -51,6 +51,42 @@ STRIP_PHRASINGS = [
 ]
 
 
+# 채점 키워드는 두 성격이 섞여 있다.
+#   - 기계 식별자(AS_Mold, ML001, MOLD_TEMP_3, strip ID): 리포트가 그대로 옮겨 적으므로 정확 일치가 맞다.
+#     오히려 ML001을 ML002로 쓰면 진짜 오답이라 느슨하게 보면 안 된다.
+#   - 사람이 붙인 라벨(불량명, 불량 위치 패턴): 리포트가 자연스럽게 바꿔 쓴다.
+#     예) 판정 라벨 "가장자리 분포" ↔ 리포트 "가장자리 집중" / 지식카드 "에지 집중형".
+# 후자만 동의어를 허용한다. 허용 범위는 "같은 개념의 다른 표기"까지이며,
+# 상위 개념(예: "몰드 온도")으로 넓히지 않는다 — 그러면 다른 키워드만 맞아도 통과해 점수가 부풀려진다.
+LOCATION_SYNONYMS = {
+    "중앙 집중": ["중앙 집중", "중앙 집중형", "Center Cluster"],
+    "가장자리 분포": ["가장자리 분포", "가장자리 집중", "에지 집중", "엣지 집중", "Edge Concentration"],
+    "라인·스트라이프 분포": ["라인·스트라이프", "라인/스트라이프", "스트라이프형", "Line/Stripe"],
+    "산발 분포": ["산발 분포", "랜덤 산발", "산발 분포형", "Random Distribution"],
+}
+
+# 괄호 없는 불량명은 표기 흔들림만 허용한다(몰딩/몰드).
+DEFECT_SYNONYMS = {
+    "몰딩 온도 스펙 이탈": ["몰딩 온도 스펙 이탈", "몰드 온도 스펙 이탈", "몰딩 온도 이탈"],
+}
+
+
+def defect_variants(name: str) -> list[str]:
+    """'박리 (Delamination)' → ['박리 (Delamination)', '박리', 'Delamination'].
+
+    괄호 표기는 리포트마다 'Delamination(박리)', '박리' 등으로 갈리므로
+    한글부/영문부 어느 쪽이든 인정한다(같은 개념의 다른 표기).
+    """
+    if name in DEFECT_SYNONYMS:
+        return DEFECT_SYNONYMS[name]
+    variants = [name]
+    if "(" in name and name.endswith(")"):
+        ko = name.split("(")[0].strip()
+        en = name[name.rindex("(") + 1:-1].strip()
+        variants += [v for v in (ko, en) if v]
+    return variants
+
+
 def verify_defect_case(lot: str, ev: dict) -> dict | None:
     """사건의 정답이 이 LOT의 데이터에서 실제로 재현되는지 확인하고 기대값을 만든다."""
     y = T.analyze_lot_yield(lot)
@@ -63,7 +99,8 @@ def verify_defect_case(lot: str, ev: dict) -> dict | None:
     if y.get("defect_type") != ev["defect_name"]:
         return None
 
-    expected = [ev["step"], ev["eqp_id"], ev["defect_name"]]
+    # 식별자는 문자열 그대로, 불량명은 표기 변형 목록(any-of)으로 넣는다
+    expected = [ev["step"], ev["eqp_id"], defect_variants(ev["defect_name"])]
     if ev.get("root_cause_item"):
         v = T.check_spec_violation(lot)
         items = [x["항목"] for x in v.get("violations", [])]
@@ -80,14 +117,17 @@ def verify_strip_case(lot: str, ev: dict, want_location: str) -> dict | None:
     worst = s["worst_strip"]
     if worst["fail_location"] != want_location:
         return None
-    return {"expected_keywords": [worst["strip_id"], want_location]}
+    return {"expected_keywords": [
+        worst["strip_id"],                                          # 식별자 — 정확 일치
+        LOCATION_SYNONYMS.get(want_location, [want_location]),      # 패턴명 — 표기 변형 허용
+    ]}
 
 
 # analyze_strip_yield의 판정 용어 ← 11번이 심은 패턴명
 LOCATION_OF_PATTERN = {
     "중앙 집중형 (Center Cluster)": "중앙 집중",
     "에지 집중형 (Edge Concentration)": "가장자리 분포",
-    "라인/스트라이프형 (Line/Stripe)": "라인·스트라이프 분포",
+    "라인/스트라이프형 (Line/Stripe Pattern)": "라인·스트라이프 분포",
     "랜덤 산발형 (Random Distribution)": "산발 분포",
 }
 

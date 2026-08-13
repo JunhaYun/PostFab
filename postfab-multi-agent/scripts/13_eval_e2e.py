@@ -40,6 +40,85 @@ EVAL_PATH = os.path.join(BASE, "data", "eval", "e2e_eval.json")
 OUT_PATH = os.path.join(BASE, "data", "eval", "e2e_result.json")
 
 
+def kw_label(kw) -> str:
+    """키워드 표기 — any-of 목록이면 대표값(첫 항목)으로 보여준다."""
+    return kw[0] if isinstance(kw, list) else kw
+
+
+def kw_hit(kw, answer: str) -> bool:
+    """문자열이면 정확 포함, 목록이면 하나라도 포함되면 정답(any-of).
+
+    식별자(ML001 등)는 문자열로 남겨 정확 비교하고, 사람이 붙인 라벨만 목록으로 온다.
+    """
+    if isinstance(kw, list):
+        return any(v in answer for v in kw)
+    return kw in answer
+
+
+# ── LLM 채점 ────────────────────────────────────────────────────────────────
+# 문자열 채점은 표기가 흔들리면 오판하고, LLM 채점은 실행마다 흔들린다. 둘을 겸한다:
+# 사실 채점(결정론적)은 회귀 비교의 기준선으로 두고, 의미 채점(LLM)은 별도 지표로 본다.
+# 채점기가 후하게 주는 것을 막으려고 정답지를 함께 넘기고 판정 근거를 쓰게 한다.
+JUDGE_MODEL = "claude-sonnet-4-6"
+
+# 사건 유형마다 정답지에 있는 항목이 다르다. 불량 사건은 공정/설비/불량명을 갖지만
+# strip 사건의 정답은 strip ID와 불량 위치 패턴뿐이다. 유형에 상관없이 같은 항목을 물으면
+# 채점기가 정답지에 없는 것을 판정하게 되어 결과가 오락가락한다(실제로 그랬다).
+JUDGE_CRITERIA = {
+    "strip_pattern": [
+        ("strip", "정답의 최악 strip을 맞게 지목했는가"),
+        ("pattern", "불량 위치 패턴을 맞게 특정했는가 (표현이 달라도 같은 패턴이면 통과)"),
+        ("cause_sound", "원인 설명이 그 패턴의 알려진 원인과 부합하는가"),
+    ],
+    "_default": [
+        ("step", "정답의 공정을 맞게 특정했는가"),
+        ("equipment", "정답의 설비를 맞게 특정했는가"),
+        ("defect", "정답의 불량 유형을 맞게 특정했는가 (표현이 달라도 같은 불량이면 통과)"),
+        ("cause_sound", "원인 설명이 그 불량 유형의 알려진 원인과 부합하는가"),
+    ],
+}
+
+JUDGE_SYSTEM = """당신은 반도체 후공정 원인 분석 리포트를 채점하는 평가자입니다.
+[정답]은 데이터에 실제로 심어둔 사실입니다. [리포트]가 이를 짚었는지 [판정 항목]별로 보세요.
+
+판정 기준:
+- 표현이 달라도 같은 내용을 가리키면 통과로 봅니다 (예: "가장자리 집중" = "에지 집중형").
+- 정답과 다른 대상을 지목했으면 불통과입니다 (예: 다른 설비 ID).
+- 언급조차 없으면 불통과입니다. 후하게 주지 마세요.
+- [판정 항목]에 없는 것은 판정하지 마세요.
+
+JSON만 반환하세요. 각 항목 키에 true/false, 그리고 "reason"에 판정 근거 한 줄."""
+
+
+def criteria_for(case: dict) -> list[tuple[str, str]]:
+    return JUDGE_CRITERIA.get(case["event_type"], JUDGE_CRITERIA["_default"])
+
+
+def judge(case: dict, answer: str) -> dict | None:
+    """LLM 채점. 실패 시 None(집계에서 제외)."""
+    import anthropic
+    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    crit = criteria_for(case)
+    truth = {k: case.get(k) for k in ("event_type", "related_doc")}
+    truth["정답 키워드"] = [kw_label(k) for k in case["expected_keywords"]]
+    payload = (f"[질문]\n{case['query']}\n\n"
+               f"[정답]\n{json.dumps(truth, ensure_ascii=False)}\n\n"
+               f"[판정 항목]\n" + "\n".join(f"- {k}: {desc}" for k, desc in crit) + "\n\n"
+               f"[리포트]\n{answer[:6000]}")
+    try:
+        resp = client.messages.create(
+            model=JUDGE_MODEL, max_tokens=400,
+            system=JUDGE_SYSTEM, messages=[{"role": "user", "content": payload}],
+        )
+        text = "".join(b.text for b in resp.content if hasattr(b, "text")).strip()
+        if text.startswith("```"):
+            text = text.split("```")[1].removeprefix("json").strip()
+        return json.loads(text)
+    except Exception as e:
+        print(f"        [판정 실패] {str(e)[:80]}")
+        return None
+
+
 def knowledge_query(log: list) -> str:
     for e in log:
         if e.get("step") == "Knowledge 검색":
@@ -60,9 +139,11 @@ def doc_cited(log: list, related_doc: str) -> bool:
     return False
 
 
-def run(limit: int | None = None):
+def run(limit: int | None = None, ids: list[str] | None = None, use_judge: bool = True):
     with open(EVAL_PATH, encoding="utf-8") as f:
         cases = json.load(f)["cases"]
+    if ids:
+        cases = [c for c in cases if c["id"] in set(ids)]
     if limit:
         cases = cases[:limit]
 
@@ -94,19 +175,31 @@ def run(limit: int | None = None):
 
         answer = r.get("answer", "")
         intent_ok = r["router"]["intent"] == c["expected_intent"]
-        hits = [k for k in c["expected_keywords"] if k in answer]
-        misses = [k for k in c["expected_keywords"] if k not in answer]
+        hits = [kw_label(k) for k in c["expected_keywords"] if kw_hit(k, answer)]
+        misses = [kw_label(k) for k in c["expected_keywords"] if not kw_hit(k, answer)]
         passed = intent_ok and not misses
         cited = doc_cited(r.get("log", []), c["related_doc"])
+        verdict = judge(c, answer) if use_judge else None
 
         by_type[c["event_type"]][1] += 1
         by_type[c["event_type"]][0] += passed
         rows.append({**c, "intent_ok": intent_ok, "hits": hits, "misses": misses,
-                      "passed": passed, "cited": cited})
+                      "passed": passed, "cited": cited, "judge": verdict,
+                      # 답변 원문과 검색된 문서 제목을 남긴다 —
+                      # 없으면 실패 원인을 보려고 매번 재실행해야 한다(실제로 그랬다)
+                      "answer": answer,
+                      "context_titles": next((e.get("context_titles", []) for e in r.get("log", [])
+                                              if e.get("step") == "Knowledge 검색"), [])})
+        keys = [k for k, _ in criteria_for(c)]
+        j = ""
+        if verdict:
+            j = " 판정 " + "".join("O" if verdict.get(k) else "X" for k in keys)
         print(f"  [{idx}/{len(cases)}] {'OK ' if passed else 'XX '} {c['id']:<16} "
-              f"{'인용O' if cited else '인용X'}  {c['query'][:34]}")
+              f"{'인용O' if cited else '인용X'}{j}  {c['query'][:30]}")
         if misses:
             print(f"        놓친 키워드: {misses}")
+        if verdict and not all(verdict.get(k) for k in keys):
+            print(f"        판정 근거: {verdict.get('reason', '')[:110]}")
 
     n = len(rows)
     intent_ok = sum(r["intent_ok"] for r in rows)
@@ -120,6 +213,21 @@ def run(limit: int | None = None):
     print(f"정답 키워드 재현 : {hit_kw}/{total_kw} = {hit_kw / total_kw * 100:.1f}%")
     print(f"문항 성공률      : {passed}/{n} = {passed / n * 100:.1f}%")
     print(f"지식베이스 인용률: {cited}/{n} = {cited / n * 100:.1f}%")
+
+    judged = [r for r in rows if r.get("judge")]
+    if judged:
+        # 항목이 사건 유형마다 달라서 분모도 유형별로 다르다 — 항목별로 따로 센다
+        print(f"\nLLM 의미 채점 (n={len(judged)}):")
+        tally: dict[str, list[int]] = {}
+        for r in judged:
+            for key, _ in criteria_for(r):
+                slot = tally.setdefault(key, [0, 0])
+                slot[1] += 1
+                slot[0] += bool(r["judge"].get(key))
+        for key, (ok, tot) in tally.items():
+            print(f"  {key:<14} {ok}/{tot} = {ok / tot * 100:.1f}%")
+        allok = sum(1 for r in judged if all(r["judge"].get(k) for k, _ in criteria_for(r)))
+        print(f"  {'전 항목 통과':<14} {allok}/{len(judged)} = {allok / len(judged) * 100:.1f}%")
     print("\n사건 유형별 성공률:")
     for t in sorted(by_type):
         ok, tot = by_type[t]
@@ -141,5 +249,13 @@ def run(limit: int | None = None):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--ids", default=None,
+                     help="쉼표로 구분한 문항 ID만 실행 (예: 재실행 비용 절감용)")
+    ap.add_argument("--no-judge", action="store_true", help="LLM 의미 채점 생략")
+    ap.add_argument("--out", default=None, help="결과 저장 경로 (기본 e2e_result.json)")
     args = ap.parse_args()
-    run(limit=args.limit)
+    if args.out:
+        OUT_PATH = os.path.join(BASE, "data", "eval", args.out)
+    run(limit=args.limit,
+        ids=[s.strip() for s in args.ids.split(",")] if args.ids else None,
+        use_judge=not args.no_judge)

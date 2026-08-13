@@ -170,11 +170,15 @@ def _apply_random(grid, rng, rate: float = 0.03):
                 grid[r][c] = "0"
 
 
+# 키는 지식베이스 「수율 분석 가이드 > emap 패턴 - ...」 카드 제목과 **정확히** 일치해야 한다.
+# related_doc이 이 키로 만들어지고, 평가에서 "정답 카드가 검색됐나"를 제목 대조로 확인하기 때문.
+# 한 글자만 달라도(예: "(Line/Stripe)" vs "(Line/Stripe Pattern)") 검색은 정상인데
+# 인용 실패로 잡힌다 — 실제로 그렇게 오판정된 적이 있다.
 EMAP_PATTERNS = {
-    "중앙 집중형 (Center Cluster)":      _apply_center,
-    "에지 집중형 (Edge Concentration)":  _apply_edge,
-    "라인/스트라이프형 (Line/Stripe)":   _apply_stripe,
-    "랜덤 산발형 (Random Distribution)": _apply_random,
+    "중앙 집중형 (Center Cluster)":          _apply_center,
+    "에지 집중형 (Edge Concentration)":      _apply_edge,
+    "라인/스트라이프형 (Line/Stripe Pattern)": _apply_stripe,
+    "랜덤 산발형 (Random Distribution)":     _apply_random,
 }
 
 
