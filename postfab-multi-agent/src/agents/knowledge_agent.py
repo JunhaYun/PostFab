@@ -26,6 +26,7 @@ def answer(query: str, log: list | None = None, history: list | None = None) -> 
     response = client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=1024,
+        temperature=0,   # 답변 표현이 실행마다 달라지지 않도록 고정 (router_agent 주석 참고)
         system=SYSTEM_PROMPT,
         messages=messages,
     )

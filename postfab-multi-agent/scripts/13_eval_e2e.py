@@ -108,6 +108,9 @@ def judge(case: dict, answer: str) -> dict | None:
     try:
         resp = client.messages.create(
             model=JUDGE_MODEL, max_tokens=400,
+            # 채점기는 자[尺]다 — 같은 리포트에 같은 판정이 나와야 한다.
+            # 미지정 시 기본값 1.0이라 재실행 때마다 판정이 바뀔 수 있었다.
+            temperature=0,
             system=JUDGE_SYSTEM, messages=[{"role": "user", "content": payload}],
         )
         text = "".join(b.text for b in resp.content if hasattr(b, "text")).strip()

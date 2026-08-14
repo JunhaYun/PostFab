@@ -64,10 +64,18 @@ def render_log(log: list):
         elif step == "Function Call":
             tool, inp = entry["tool"], entry["input"]
             args_str = ", ".join(f'"{v}"' for v in inp.values())
-            st.markdown(f'<div class="fn-call">🔧 <b>{tool}({args_str})</b></div>',
-                        unsafe_allow_html=True)
-            with st.expander(f"결과 — {tool}"):
-                st.code(entry["result_preview"], language="json")
+            # 조회 대상이 없는 호출은 '해당 없음'으로 한 줄만 —
+            # 원본 error JSON을 펼쳐 보이면 정상 동작이 오류처럼 읽힌다.
+            if entry.get("status") == "no_data":
+                st.markdown(
+                    f'<div class="fn-call" style="opacity:.55">🔧 <b>{tool}({args_str})</b>'
+                    f' <span style="font-size:11px">— 해당 데이터 없음</span></div>',
+                    unsafe_allow_html=True)
+            else:
+                st.markdown(f'<div class="fn-call">🔧 <b>{tool}({args_str})</b></div>',
+                            unsafe_allow_html=True)
+                with st.expander(f"결과 — {tool}"):
+                    st.code(entry["result_preview"], language="json")
         elif step == "RAG 검색":
             st.markdown(f'<div class="agent-box"><span class="step-badge">Knowledge</span>'
                         f'🔍 RAG 검색 | {entry["retrieved_chars"]}자</div>', unsafe_allow_html=True)

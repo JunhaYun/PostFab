@@ -314,7 +314,11 @@ function appendAssistantMessage(data) {
   const fnCalls = data.log.filter(e => e.step === 'Function Call');
   const logHtml = fnCalls.map(e => {
     const args = Object.values(e.input).map(v => `"${v}"`).join(', ');
-    return `<div class="log-entry"><span class="log-fn">🔧 ${e.tool}(${args})</span></div>`;
+    // 조회 대상이 없던 호출은 흐리게 + '해당 없음' 표기 (실패가 아니라 정상 동작)
+    const none = e.status === 'no_data'
+      ? ` <span style="font-size:11px;color:var(--muted)">— 해당 데이터 없음</span>` : '';
+    const dim = e.status === 'no_data' ? ' style="opacity:.55"' : '';
+    return `<div class="log-entry"${dim}><span class="log-fn">🔧 ${e.tool}(${args})</span>${none}</div>`;
   }).join('');
   const ragCalls = data.log.filter(e => e.step === 'RAG 검색' || e.step === 'Knowledge 검색');
   const ragHtml = ragCalls.map(e =>

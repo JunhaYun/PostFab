@@ -368,6 +368,323 @@ def analyze_strip_yield(lot_id: str) -> dict:
     }
 
 
+# ── 기간 집계 도구 (여러 LOT을 가로질러 보는 도구) ────────────────────────────
+#
+# 위 도구들은 전부 LOT 하나(또는 strip 하나)를 보는 도구다. LOT 3,000개/6개월치
+# 데이터가 들어오면서 "기간 내 수율 낮은 LOT", "설비별 추세" 같은 질문에 답할
+# 수단이 없어 여기에 추가한다.
+#
+# 설계 원칙 — SQL은 여기 고정해 두고 LLM에게는 '조건'(기간/대상/개수)만 채우게 한다.
+# LLM이 즉석에서 SQL을 짜면 문법은 맞아도 도메인상 틀린 숫자가 조용히 나올 수 있고
+# (YIELD가 '96.2%' TEXT라 평균이 엉뚱해지는 것, 공정별 수율을 단순 산술평균 내는 것),
+# 그런 오답은 에러가 안 나므로 사람이 알아채지 못한다. 조건 선택이 틀리면(6월↔7월)
+# 사람이 바로 알아보지만 계산식이 틀리면 알아볼 방법이 없다.
+
+from datetime import datetime
+
+# group_by 라벨 → 집계 컬럼. LLM이 임의 컬럼을 넣지 못하도록 화이트리스트로 둔다.
+_GROUP_COLUMNS = {
+    "공정": "STEPNAME",
+    "설비": "EQPID",
+    "월":   "substr(TRACKOUTTIME, 1, 6)",
+}
+
+MAX_ROWS = 50   # 결과 폭주 방지 상한
+
+
+def _norm_date(value: str, field: str) -> tuple[str | None, str | None]:
+    """'2026-06-01' / '20260601' → '20260601'. 반환 (정규화값, 에러메시지)."""
+    if not value:
+        return None, f"{field}가 비어 있습니다."
+    raw = str(value).strip().replace("-", "").replace("/", "")
+    try:
+        datetime.strptime(raw, "%Y%m%d")
+    except ValueError:
+        return None, f"{field} '{value}'는 날짜 형식이 아닙니다. YYYY-MM-DD로 입력하세요."
+    return raw, None
+
+
+def _fmt_date(yyyymmdd: str) -> str:
+    return f"{yyyymmdd[:4]}-{yyyymmdd[4:6]}-{yyyymmdd[6:8]}"
+
+
+def _data_period() -> tuple[str, str]:
+    with _connect() as conn:
+        lo, hi = conn.execute(
+            "SELECT MIN(substr(TRACKOUTTIME,1,8)), MAX(substr(TRACKOUTTIME,1,8)) FROM tdtestresult"
+        ).fetchone()
+    return lo, hi
+
+
+def _validate_period(start_date: str, end_date: str) -> tuple[tuple[str, str] | None, dict | None]:
+    """기간 인자를 검증한다. 실패 시 (None, 에러dict)."""
+    start, err = _norm_date(start_date, "start_date")
+    if err:
+        return None, {"error": err}
+    end, err = _norm_date(end_date, "end_date")
+    if err:
+        return None, {"error": err}
+    if start > end:
+        return None, {"error": f"start_date({_fmt_date(start)})가 end_date({_fmt_date(end)})보다 뒤입니다."}
+
+    lo, hi = _data_period()
+    if end < lo or start > hi:
+        return None, {"error": f"요청 기간({_fmt_date(start)}~{_fmt_date(end)})에 데이터가 없습니다. "
+                               f"보유 기간은 {_fmt_date(lo)}~{_fmt_date(hi)}입니다."}
+    return (start, end), None
+
+
+def _yield_pct(in_qty: int, out_qty: int) -> float | None:
+    """가중 수율 = 산출합 / 투입합. 공정별 수율의 단순 산술평균은 투입량이 다른
+    공정을 같은 무게로 취급해 실제와 어긋나므로 쓰지 않는다."""
+    return round(out_qty / in_qty * 100, 2) if in_qty else None
+
+
+def _yield_by_group(conn, column: str, start: str, end: str) -> dict[str, dict]:
+    """기간 내 그룹별 투입/산출/불량 집계."""
+    rows = conn.execute(
+        f"SELECT {column} AS g, COUNT(DISTINCT LOTID), SUM(INQTY), SUM(REJECT), SUM(OUTQTY) "
+        f"FROM tdtestresult WHERE substr(TRACKOUTTIME,1,8) BETWEEN ? AND ? GROUP BY g",
+        (start, end),
+    ).fetchall()
+    return {
+        g: {"lot_count": lots, "in_qty": in_q, "reject": rej,
+            "out_qty": out_q, "yield_pct": _yield_pct(in_q, out_q)}
+        for g, lots, in_q, rej, out_q in rows
+    }
+
+
+def find_low_yield_lots(start_date: str, end_date: str, limit: int = 10,
+                        step_name: str | None = None,
+                        eqp_id: str | None = None) -> dict:
+    """기간 내 수율이 낮은 LOT을 순위로 뽑는다.
+
+    step_name/eqp_id가 없으면 LOT 최종 수율(첫 공정 투입 대비 마지막 공정 산출) 기준,
+    있으면 해당 공정/설비를 지난 LOT을 그 공정의 수율 기준으로 순위화한다.
+    기간 판정은 LOT의 마지막 공정 완료일(TRACKOUTTIME) 기준이다.
+    """
+    period, err = _validate_period(start_date, end_date)
+    if err:
+        return err
+    start, end = period
+
+    try:
+        limit = int(limit)
+    except (TypeError, ValueError):
+        limit = 10
+    limit = max(1, min(limit, MAX_ROWS))
+
+    with _connect() as conn:
+        # 오타로 조건이 아무것도 안 걸려 빈 결과가 나오는 것을 막는다.
+        # 조용히 0건을 돌려주면 "그 기간엔 문제가 없었다"로 오독된다.
+        for label, col, val in (("공정", "STEPNAME", step_name), ("설비", "EQPID", eqp_id)):
+            if not val:
+                continue
+            exists = conn.execute(
+                f"SELECT 1 FROM tdtestresult WHERE {col} = ? LIMIT 1", (val,)
+            ).fetchone()
+            if not exists:
+                names = [r[0] for r in conn.execute(
+                    f"SELECT DISTINCT {col} FROM tdtestresult ORDER BY {col}")]
+                return {"error": f"{label} '{val}'을(를) 찾을 수 없습니다.",
+                        f"사용 가능한_{label}": names}
+
+        if step_name or eqp_id:
+            sql = ("SELECT LOTID, STEPNAME, EQPID, INQTY, REJECT, OUTQTY, YIELD, "
+                   "substr(TRACKOUTTIME,1,8) FROM tdtestresult "
+                   "WHERE substr(TRACKOUTTIME,1,8) BETWEEN ? AND ?")
+            params: list = [start, end]
+            if step_name:
+                sql += " AND STEPNAME = ?"
+                params.append(step_name)
+            if eqp_id:
+                sql += " AND EQPID = ?"
+                params.append(eqp_id)
+            sql += " ORDER BY YIELD_NUM ASC, LOTID LIMIT ?"
+            params.append(limit)
+            rows = conn.execute(sql, params).fetchall()
+
+            target = " / ".join(x for x in (step_name, eqp_id) if x)
+            return {
+                "기준": f"'{target}' 공정·설비의 수율 오름차순",
+                "기간": f"{_fmt_date(start)} ~ {_fmt_date(end)} (공정 완료일 기준)",
+                "조회건수": len(rows),
+                "lots": [
+                    {"lot_id": r[0], "공정": r[1], "설비": r[2], "투입": r[3],
+                     "REJECT": r[4], "산출": r[5], "수율": r[6], "완료일": _fmt_date(r[7])}
+                    for r in rows
+                ] or "해당 조건의 데이터가 없습니다.",
+            }
+
+        # LOT 최종 수율 기준 — 기간 내 '완료된' LOT만 대상
+        rows = conn.execute(
+            "SELECT t.LOTID, t.STEPSEQ, t.STEPNAME, t.EQPID, t.INQTY, t.REJECT, "
+            "       t.OUTQTY, t.YIELD, t.YIELD_NUM, substr(t.TRACKOUTTIME,1,8) "
+            "FROM tdtestresult t "
+            "JOIN (SELECT LOTID, MAX(substr(TRACKOUTTIME,1,8)) AS d "
+            "      FROM tdtestresult GROUP BY LOTID) c ON t.LOTID = c.LOTID "
+            "WHERE c.d BETWEEN ? AND ? "
+            "ORDER BY t.LOTID, t.STEPSEQ",
+            (start, end),
+        ).fetchall()
+
+    by_lot: dict[str, list] = {}
+    for r in rows:
+        by_lot.setdefault(r[0], []).append(r)
+
+    summaries = []
+    for lot_id, steps in by_lot.items():
+        first, last = steps[0], steps[-1]
+        final = _yield_pct(first[4] or 0, last[6] or 0)
+        if final is None:
+            continue
+        worst = min(steps, key=lambda s: s[8])
+        summaries.append({
+            "lot_id": lot_id,
+            "최종수율": f"{final}%",
+            "_sort": final,
+            "최악공정": worst[2],
+            "최악공정_설비": worst[3],
+            "최악공정_수율": worst[7],
+            "완료일": _fmt_date(last[9]),
+        })
+
+    summaries.sort(key=lambda s: s["_sort"])
+    top = summaries[:limit]
+    for s in top:
+        s.pop("_sort")
+
+    return {
+        "기준": "LOT 최종 수율(첫 공정 투입 대비 마지막 공정 산출) 오름차순",
+        "기간": f"{_fmt_date(start)} ~ {_fmt_date(end)} (LOT 완료일 기준)",
+        "기간내_완료_LOT수": len(summaries),
+        "lots": top or "해당 기간에 완료된 LOT이 없습니다.",
+    }
+
+
+def summarize_yield_by(group_by: str, start_date: str, end_date: str,
+                       limit: int = 20) -> dict:
+    """기간 내 수율을 공정별/설비별/월별로 집계한다 (수율 낮은 순).
+
+    각 그룹의 수율은 산출합/투입합(가중 수율)이며 공정별 수율의 산술평균이 아니다.
+    """
+    column = _GROUP_COLUMNS.get(group_by)
+    if column is None:
+        return {"error": f"group_by '{group_by}'는 지원하지 않습니다.",
+                "사용 가능한 값": list(_GROUP_COLUMNS)}
+
+    period, err = _validate_period(start_date, end_date)
+    if err:
+        return err
+    start, end = period
+
+    try:
+        limit = int(limit)
+    except (TypeError, ValueError):
+        limit = 20
+    limit = max(1, min(limit, MAX_ROWS))
+
+    with _connect() as conn:
+        grouped = _yield_by_group(conn, column, start, end)
+
+    items = []
+    for key, v in grouped.items():
+        if v["yield_pct"] is None:
+            continue
+        label = f"{key[:4]}-{key[4:6]}" if group_by == "월" else key
+        items.append({group_by: label, "LOT수": v["lot_count"], "투입": v["in_qty"],
+                      "REJECT": v["reject"], "산출": v["out_qty"],
+                      "수율": f"{v['yield_pct']}%", "_sort": v["yield_pct"]})
+
+    # 월은 시간 순, 나머지는 수율 낮은 순(=문제부터)
+    items.sort(key=lambda x: x["월"] if group_by == "월" else x["_sort"])
+    total_groups = len(items)          # limit로 자르기 전 전체 개수
+    items = items[:limit]
+    for x in items:
+        x.pop("_sort")
+
+    return {
+        "집계기준": f"{group_by}별 가중 수율(산출합/투입합)",
+        "기간": f"{_fmt_date(start)} ~ {_fmt_date(end)} (공정 완료일 기준)",
+        "전체_그룹수": total_groups,
+        "표시_건수": len(items),
+        "결과": items or "해당 기간에 데이터가 없습니다.",
+    }
+
+
+def compare_yield_periods(group_by: str, period1_start: str, period1_end: str,
+                          period2_start: str, period2_end: str,
+                          limit: int = 10) -> dict:
+    """두 기간의 수율을 공정별/설비별로 비교해 변화량(2기간 - 1기간)을 낸다.
+    수율이 많이 떨어진 순으로 정렬하므로 설비 열화·추세 확인에 쓴다.
+    """
+    column = _GROUP_COLUMNS.get(group_by)
+    if column is None or group_by == "월":
+        return {"error": f"group_by '{group_by}'는 기간 비교에 쓸 수 없습니다.",
+                "사용 가능한 값": ["공정", "설비"]}
+
+    p1, err = _validate_period(period1_start, period1_end)
+    if err:
+        return {"error": f"[기간1] {err['error']}"}
+    p2, err = _validate_period(period2_start, period2_end)
+    if err:
+        return {"error": f"[기간2] {err['error']}"}
+
+    try:
+        limit = int(limit)
+    except (TypeError, ValueError):
+        limit = 10
+    limit = max(1, min(limit, MAX_ROWS))
+
+    with _connect() as conn:
+        g1 = _yield_by_group(conn, column, *p1)
+        g2 = _yield_by_group(conn, column, *p2)
+
+    both, only1, only2 = [], [], []
+    for key in sorted(set(g1) | set(g2)):
+        a, b = g1.get(key), g2.get(key)
+        if a is None or a["yield_pct"] is None:
+            only2.append(key)
+            continue
+        if b is None or b["yield_pct"] is None:
+            only1.append(key)
+            continue
+        delta = round(b["yield_pct"] - a["yield_pct"], 2)
+        both.append({group_by: key,
+                     "기간1_수율": f"{a['yield_pct']}%", "기간1_LOT수": a["lot_count"],
+                     "기간2_수율": f"{b['yield_pct']}%", "기간2_LOT수": b["lot_count"],
+                     "변화": f"{delta:+}%p", "_sort": delta})
+
+    both.sort(key=lambda x: x["_sort"])
+
+    # 개수는 여기서 세서 넘긴다. limit 때문에 '결과'에는 상위 N건만 담기는데,
+    # 그 목록만 보고 LLM이 "몇 개가 하락했다"를 세면 틀린다(실제로 15/16, 6/11로 틀렸다).
+    n_down = sum(1 for x in both if x["_sort"] < 0)
+    n_flat = sum(1 for x in both if x["_sort"] == 0)
+    n_up = len(both) - n_down - n_flat
+
+    top = both[:limit]
+    for x in top:
+        x.pop("_sort")
+
+    result = {
+        "비교기준": f"{group_by}별 가중 수율, 변화 = 기간2 - 기간1 (하락 순)",
+        "기간1": f"{_fmt_date(p1[0])} ~ {_fmt_date(p1[1])}",
+        "기간2": f"{_fmt_date(p2[0])} ~ {_fmt_date(p2[1])}",
+        "비교된_그룹수": len(both),
+        "요약": {"하락": n_down, "유지": n_flat, "상승": n_up},
+        "표시_건수": f"하락 상위 {len(top)}건만 표시 (전체 {len(both)}건)",
+        "결과": top or "두 기간 모두에 존재하는 그룹이 없습니다.",
+    }
+    # 한쪽 기간에만 있는 그룹은 비교 대상에서 빠졌다는 사실을 명시한다
+    # (조용히 빠지면 "변화 없음"으로 오독된다).
+    if only1:
+        result["기간1에만_있음"] = only1
+    if only2:
+        result["기간2에만_있음"] = only2
+    return result
+
+
 # ── Function Calling 스펙 (Claude tool_use 형식) ──────────────────────────────
 
 TOOL_SPECS = [
@@ -471,6 +788,67 @@ TOOL_SPECS = [
             "required": ["lot_id"]
         }
     },
+    {
+        "name": "find_low_yield_lots",
+        "description": (
+            "기간을 지정해 수율이 낮은 LOT을 순위로 뽑습니다. LOT ID를 모르는 상태에서 "
+            "'지난달 수율 낮은 LOT 10개', '6월에 수율 안 좋았던 LOT' 처럼 여러 LOT을 "
+            "가로질러 찾을 때 사용합니다. step_name/eqp_id를 주면 그 공정·설비를 지난 "
+            "LOT을 해당 공정 수율 기준으로 순위화합니다. "
+            "(LOT ID를 이미 아는 단일 LOT 분석은 analyze_lot_yield를 쓰세요.)"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "start_date": {"type": "string", "description": "조회 시작일 YYYY-MM-DD (예: 2026-06-01)"},
+                "end_date":   {"type": "string", "description": "조회 종료일 YYYY-MM-DD (예: 2026-06-30)"},
+                "limit":      {"type": "integer", "description": "가져올 LOT 개수 (기본 10, 최대 50)"},
+                "step_name":  {"type": "string", "description": "특정 공정만 볼 때 공정명 (예: AS_Mold). 생략 가능"},
+                "eqp_id":     {"type": "string", "description": "특정 설비만 볼 때 설비 ID (예: ML45DS). 생략 가능"}
+            },
+            "required": ["start_date", "end_date"]
+        }
+    },
+    {
+        "name": "summarize_yield_by",
+        "description": (
+            "기간 내 수율을 공정별/설비별/월별로 집계합니다. '6월 공정별 평균 수율', "
+            "'설비별로 어디가 제일 나빠?', '월별 수율 추이' 같은 전체 현황 질문에 사용합니다. "
+            "수율은 산출합/투입합(가중 수율)으로 계산합니다."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "group_by":   {"type": "string", "enum": ["공정", "설비", "월"],
+                               "description": "집계 단위"},
+                "start_date": {"type": "string", "description": "조회 시작일 YYYY-MM-DD"},
+                "end_date":   {"type": "string", "description": "조회 종료일 YYYY-MM-DD"},
+                "limit":      {"type": "integer", "description": "가져올 그룹 개수 (기본 20, 최대 50)"}
+            },
+            "required": ["group_by", "start_date", "end_date"]
+        }
+    },
+    {
+        "name": "compare_yield_periods",
+        "description": (
+            "두 기간의 수율을 공정별/설비별로 비교해 변화량을 냅니다. "
+            "'5월 대비 6월에 수율 떨어진 설비', '최근 나빠지고 있는 공정' 처럼 "
+            "추세·열화를 확인할 때 사용합니다. 수율이 많이 떨어진 순으로 정렬됩니다."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "group_by":      {"type": "string", "enum": ["공정", "설비"],
+                                  "description": "비교 단위"},
+                "period1_start": {"type": "string", "description": "기준 기간 시작일 YYYY-MM-DD (예: 이전 달)"},
+                "period1_end":   {"type": "string", "description": "기준 기간 종료일 YYYY-MM-DD"},
+                "period2_start": {"type": "string", "description": "비교 기간 시작일 YYYY-MM-DD (예: 최근 달)"},
+                "period2_end":   {"type": "string", "description": "비교 기간 종료일 YYYY-MM-DD"},
+                "limit":         {"type": "integer", "description": "가져올 그룹 개수 (기본 10, 최대 50)"}
+            },
+            "required": ["group_by", "period1_start", "period1_end", "period2_start", "period2_end"]
+        }
+    },
 ]
 
 # 함수 이름 → 실제 함수 매핑
@@ -484,6 +862,9 @@ TOOL_FUNCTIONS = {
     "check_spec_violation": check_spec_violation,
     "analyze_lot_yield":   analyze_lot_yield,
     "analyze_strip_yield": analyze_strip_yield,
+    "find_low_yield_lots":   find_low_yield_lots,
+    "summarize_yield_by":    summarize_yield_by,
+    "compare_yield_periods": compare_yield_periods,
 }
 
 

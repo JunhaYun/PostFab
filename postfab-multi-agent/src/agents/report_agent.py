@@ -56,7 +56,12 @@ def generate(
 
     response = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=2048,
+        # 2048에서는 '5. 권장 조치' 중간에 잘렸다(3건 중 2건). 리포트는 5개 섹션을
+        # 끝까지 써야 하므로 여유를 준다.
+        max_tokens=4096,
+        # 리포트 본문이 채점 대상이므로 특히 중요 — 같은 데이터에 같은 리포트가 나와야
+        # 정답 키워드(공정/설비/불량명) 누락이 실행 운에 좌우되지 않는다.
+        temperature=0,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_message}],
     )

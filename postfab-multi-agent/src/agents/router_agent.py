@@ -54,6 +54,15 @@ A: {"intent": "data", "lot_id": "HY260A01", "query_summary": "HY260A01 수율 �
 Q: SM260B01 어느 strip이 수율이 이상해?
 A: {"intent": "data", "lot_id": "SM260B01", "query_summary": "SM260B01 이상 strip 식별"}
 
+Q: 6월에 수율 낮은 LOT 10개 뽑아줘
+A: {"intent": "data", "lot_id": null, "query_summary": "2026-06 기간 저수율 LOT 상위 10건 조회"}
+
+Q: 설비별로 수율 어디가 제일 나빠?
+A: {"intent": "data", "lot_id": null, "query_summary": "설비별 수율 집계 조회"}
+
+Q: 5월 대비 6월에 수율 떨어진 설비 있어?
+A: {"intent": "data", "lot_id": null, "query_summary": "5월/6월 설비별 수율 변화 비교"}
+
 Q: HY260A01 수율 저하 원인 분석해줘
 A: {"intent": "root_cause", "lot_id": "HY260A01", "query_summary": "HY260A01 수율 저하 원인 분석"}
 
@@ -79,6 +88,9 @@ def route(user_query: str, history: list | None = None) -> dict:
     response = client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=256,
+        # 같은 질문에는 같은 답이 나오도록 고정. 미지정 시 기본값 1.0(=최대 무작위)이라
+        # 실행할 때마다 답이 흔들려 평가 점수를 회귀 비교에 쓸 수 없다.
+        temperature=0,
         system=SYSTEM_PROMPT,
         messages=messages,
     )
