@@ -45,14 +45,26 @@ def kw_label(kw) -> str:
     return kw[0] if isinstance(kw, list) else kw
 
 
+def strip_markdown_emphasis(text: str) -> str:
+    """비교 전 마크다운 강조 문자만 걷어낸다.
+
+    리포트가 문제 항목을 강조하려고 식별자 '안쪽'에 볼드를 넣는 일이 있다:
+        260329_STRSIM00147_**01**   ← 실제로 이렇게 써서 정확 비교가 실패했다
+    강조는 표현이지 내용이 아니므로 비교 대상에서 제외한다. 밑줄(_)은 식별자의
+    일부이므로 절대 지우지 않는다 — 지우면 ML001/ML002 같은 구분이 무너진다.
+    """
+    return text.replace("*", "").replace("`", "")
+
+
 def kw_hit(kw, answer: str) -> bool:
     """문자열이면 정확 포함, 목록이면 하나라도 포함되면 정답(any-of).
 
     식별자(ML001 등)는 문자열로 남겨 정확 비교하고, 사람이 붙인 라벨만 목록으로 온다.
     """
+    answer = strip_markdown_emphasis(answer)
     if isinstance(kw, list):
-        return any(v in answer for v in kw)
-    return kw in answer
+        return any(strip_markdown_emphasis(v) in answer for v in kw)
+    return strip_markdown_emphasis(kw) in answer
 
 
 # ── LLM 채점 ────────────────────────────────────────────────────────────────
@@ -236,17 +248,27 @@ def run(limit: int | None = None, ids: list[str] | None = None, use_judge: bool 
         ok, tot = by_type[t]
         print(f"  {t:<24} {ok}/{tot} = {ok / tot * 100:.1f}%")
 
-    with open(OUT_PATH, "w", encoding="utf-8") as f:
-        json.dump({
-            "n": n,
-            "intent_accuracy": round(intent_ok / n, 4),
-            "keyword_recall": round(hit_kw / total_kw, 4),
-            "case_pass_rate": round(passed / n, 4),
-            "doc_citation_rate": round(cited / n, 4),
-            "by_event_type": {t: {"passed": v[0], "total": v[1]} for t, v in by_type.items()},
-            "cases": rows,
-        }, f, ensure_ascii=False, indent=2)
-    print(f"\n저장 → {OUT_PATH}")
+    payload = {
+        "n": n,
+        "intent_accuracy": round(intent_ok / n, 4),
+        "keyword_recall": round(hit_kw / total_kw, 4),
+        "case_pass_rate": round(passed / n, 4),
+        "doc_citation_rate": round(cited / n, 4),
+        "by_event_type": {t: {"passed": v[0], "total": v[1]} for t, v in by_type.items()},
+        "cases": rows,
+    }
+    # 저장 실패로 실행 결과를 통째로 잃지 않게 한다 — 36문항 한 번이 $2.5짜리라
+    # 여기서 예외가 나면 답변 원문과 검색 문서 제목이 전부 날아간다(실제로 겪었다).
+    try:
+        os.makedirs(os.path.dirname(OUT_PATH) or ".", exist_ok=True)
+        with open(OUT_PATH, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        print(f"\n저장 → {OUT_PATH}")
+    except OSError as e:
+        fallback = os.path.join(BASE, "data", "eval", "e2e_result_fallback.json")
+        with open(fallback, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        print(f"\n[저장 실패] {OUT_PATH} — {e}\n대신 저장 → {fallback}")
 
 
 if __name__ == "__main__":
@@ -255,10 +277,16 @@ if __name__ == "__main__":
     ap.add_argument("--ids", default=None,
                      help="쉼표로 구분한 문항 ID만 실행 (예: 재실행 비용 절감용)")
     ap.add_argument("--no-judge", action="store_true", help="LLM 의미 채점 생략")
-    ap.add_argument("--out", default=None, help="결과 저장 경로 (기본 e2e_result.json)")
+    ap.add_argument("--out", default=None,
+                     help="결과 저장 경로. 파일명만 주면 data/eval/ 아래, "
+                          "경로를 주면 그 경로 그대로 (기본 e2e_result.json)")
     args = ap.parse_args()
     if args.out:
-        OUT_PATH = os.path.join(BASE, "data", "eval", args.out)
+        # 파일명만 온 경우에만 data/eval/을 붙인다. 경로가 섞인 값에 무조건 붙이면
+        # data/eval/data/eval/... 같은 없는 경로가 만들어진다.
+        OUT_PATH = (os.path.abspath(args.out)
+                    if os.path.isabs(args.out) or os.path.dirname(args.out)
+                    else os.path.join(BASE, "data", "eval", args.out))
     run(limit=args.limit,
         ids=[s.strip() for s in args.ids.split(",")] if args.ids else None,
         use_judge=not args.no_judge)
