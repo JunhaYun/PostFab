@@ -4,6 +4,8 @@ LangGraph 기반 Multi-Agent Workflow.
 그래프 구조:
   START
     ↓
+  rewrite_node   (멀티턴일 때만: "그게 뭔데?" → "볼 리프트가 뭔데?")
+    ↓
   router_node
     ↓ (intent에 따라 분기)
   ┌───────────────────────────────────────────┐
@@ -26,7 +28,8 @@ import operator
 
 from langgraph.graph import StateGraph, END
 
-from src.agents import router_agent, planner_agent, knowledge_agent, data_agent, report_agent
+from src.agents import (router_agent, planner_agent, knowledge_agent, data_agent,
+                        report_agent, rewriter_agent)
 from src.rag.retriever import format_context, retrieve, retrieve_as_context
 from src import metrics
 
@@ -34,7 +37,8 @@ from src import metrics
 # ── State 정의 ─────────────────────────────────────────────────
 class AgentState(TypedDict):
     # 입력
-    user_query: str
+    user_query: str        # rewrite_node를 지나면 '자기완결적으로 고쳐진' 질문이 된다
+    original_query: str    # 사용자가 실제로 친 말 (화면·로그 표시용)
     history: list[dict]
     # Router 결과
     intent: str
@@ -53,6 +57,20 @@ class AgentState(TypedDict):
 
 
 # ── 노드 정의 ──────────────────────────────────────────────────
+
+def rewrite_node(state: AgentState) -> dict:
+    """지시어를 앞 턴의 이름으로 풀어 자기완결적 질문으로 만든다.
+
+    이후 모든 노드(Router / Data / Knowledge)가 이 결과를 쓴다. 특히 RAG 검색은
+    대화를 못 보므로, 여기서 풀어주지 않으면 "그게 뭔데?"가 그대로 검색어가 된다.
+    """
+    original = state["user_query"]
+    rewritten, changed = rewriter_agent.rewrite(original, history=state.get("history"))
+    log = []
+    if changed:
+        log.append({"step": "질문 재작성", "original": original, "rewritten": rewritten})
+    return {"user_query": rewritten, "original_query": original, "log": log}
+
 
 def router_node(state: AgentState) -> dict:
     result = router_agent.route(state["user_query"], history=state.get("history"))
@@ -235,6 +253,7 @@ def after_data(state: AgentState) -> str:
 def _build_graph() -> StateGraph:
     g = StateGraph(AgentState)
 
+    g.add_node("rewrite",          rewrite_node)
     g.add_node("router",           router_node)
     g.add_node("knowledge",        knowledge_node)
     g.add_node("data",             data_node)
@@ -243,7 +262,8 @@ def _build_graph() -> StateGraph:
     g.add_node("report",           report_node)
     g.add_node("out_of_scope",     out_of_scope_node)
 
-    g.set_entry_point("router")
+    g.set_entry_point("rewrite")
+    g.add_edge("rewrite", "router")
 
     # router → 분기
     g.add_conditional_edges("router", route_by_intent, {
@@ -275,6 +295,65 @@ def _build_graph() -> StateGraph:
 _graph = _build_graph()
 
 
+# ── 대화 이력 압축 ─────────────────────────────────────────────
+#
+# history는 Router / Data Agent / Knowledge Agent에 매 턴 통째로 재전송된다.
+# 특히 Data Agent는 agentic loop라 도구를 부를 때마다 다시 보낸다. 그런데 원인분석
+# 리포트 한 건이 3,000자(≈2,500토큰)라, 손대지 않으면 8턴 만에 Router 입력이
+# 1,703 → 6,920 토큰으로 4배가 된다(실측).
+#
+# 다음 턴이 리포트에서 실제로 필요로 하는 건 "어느 LOT, 어느 설비, 결론이 뭐였나"뿐이고
+# 그건 리포트의 '요약' 섹션에 다 들어 있다. 그래서 리포트는 요약만 남긴다.
+#
+# 단, 조회 답변의 표는 그대로 둔다 — "첫번째 LOT 원인 분석해줘" 같은 지시어가
+# 앞 턴의 표를 가리키므로, 표를 자르면 멀티턴이 깨진다.
+
+MAX_HISTORY_TURNS = 6      # user+assistant 쌍 기준. 이보다 오래된 턴은 버린다.
+MAX_ANSWER_CHARS = 900     # 표가 든 조회 답변이 잘리지 않을 만큼은 남긴다.
+
+
+def _summarize_report(answer: str) -> str:
+    """리포트면 '요약' 섹션만 뽑아 돌려준다. 리포트가 아니면 None."""
+    import re
+    m = re.search(r"^#{1,4}\s*\d*\.?\s*요약\s*$", answer, re.MULTILINE)
+    if not m:
+        return None
+    body = answer[m.end():]
+    # 다음 섹션 헤더나 구분선 직전까지가 요약 본문
+    nxt = re.search(r"^\s*(#{1,4}\s|---\s*$)", body, re.MULTILINE)
+    summary = (body[:nxt.start()] if nxt else body).strip()
+    return summary or None
+
+
+def compact_history(history: list | None) -> list:
+    """이력을 압축한다. 원본 리스트는 건드리지 않는다."""
+    if not history:
+        return []
+
+    out = []
+    for msg in history:
+        content = msg.get("content", "")
+        if msg.get("role") != "assistant" or not isinstance(content, str):
+            out.append(dict(msg))
+            continue
+        summary = _summarize_report(content)
+        if summary:
+            content = "(원인 분석 리포트 요약) " + summary
+        elif len(content) > MAX_ANSWER_CHARS:
+            # 줄 경계에서 자른다 — 표 중간에서 끊기면 다음 턴이 오독한다
+            cut = content[:MAX_ANSWER_CHARS].rsplit("\n", 1)[0]
+            content = cut + "\n…(이하 생략)"
+        out.append({**msg, "content": content})
+
+    # 오래된 턴 버리기. user로 시작하는 형태를 유지해야 API가 받는다.
+    limit = MAX_HISTORY_TURNS * 2
+    if len(out) > limit:
+        out = out[-limit:]
+        while out and out[0].get("role") != "user":
+            out.pop(0)
+    return out
+
+
 # ── 외부 진입점 (기존 API와 동일한 시그니처 유지) ─────────────
 
 def run(user_query: str, history: list | None = None) -> dict:
@@ -286,7 +365,10 @@ def run(user_query: str, history: list | None = None) -> dict:
         try:
             final_state = _graph.invoke({
                 "user_query":        user_query,
-                "history":           history or [],
+                "original_query":    user_query,
+                # 클라이언트가 무엇을 보내든 서버에서 정리한다 — 웹/Streamlit/API 세
+                # 경로에 한 번에 적용되고, 긴 대화에서 비용이 터지는 걸 막는다.
+                "history":           compact_history(history),
                 "intent":            "",
                 "lot_id":            None,
                 "query_summary":     "",
@@ -322,6 +404,8 @@ def run(user_query: str, history: list | None = None) -> dict:
             "lot_id":        final_state.get("lot_id"),
             "query_summary": final_state.get("query_summary", ""),
             "original_query": user_query,
+            # 지시어가 풀렸으면 고쳐진 질문. 안 풀렸으면 원문과 같다.
+            "rewritten_query": final_state.get("user_query", user_query),
         },
         "planner":    final_state.get("planner_steps", []),
         "log":        log,

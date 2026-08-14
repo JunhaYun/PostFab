@@ -24,6 +24,7 @@ intent 종류:
 중요: "원인 분석", "왜", "리포트", "원인" 처럼 원인 규명·문서 생성을 요구하면 root_cause입니다.
 단, "어느 공정/strip에서 수율이 빠졌나/낮나/이상한가"처럼 대상을 '식별'만 요구하면 data입니다.
 (식별=data는 조회 도구로 바로 답하고, 원인 규명=root_cause는 지식검색+리포트까지 갑니다.)
+중요: lot_id에는 **LOT ID만** 넣습니다. 설비 ID(ML002, WB003, FT001 등)나 공정명(AS_Mold 등)은 LOT ID가 아니므로 lot_id를 null로 두세요. 질문이 설비·공정만 가리키면 lot_id는 null입니다.
 중요: 반도체 후공정(패키징/테스트/수율/설비/MES)과 관련 없는 질문은 out_of_scope로 분류하세요. "레시피"라는 단어가 있어도 요리 레시피는 out_of_scope입니다 (공정 Recipe만 data/knowledge).
 
 === ICL 예시 (In-Context Learning) ===
@@ -59,6 +60,9 @@ A: {"intent": "data", "lot_id": null, "query_summary": "2026-06 기간 저수율
 
 Q: 설비별로 수율 어디가 제일 나빠?
 A: {"intent": "data", "lot_id": null, "query_summary": "설비별 수율 집계 조회"}
+
+Q: 그럼 걔가 6월에 처리한 LOT 중 수율 낮은 거 알려줘
+A: {"intent": "data", "lot_id": null, "query_summary": "이전 답변의 설비가 6월에 처리한 저수율 LOT 조회 (설비 ID는 lot_id가 아님)"}
 
 Q: 5월 대비 6월에 수율 떨어진 설비 있어?
 A: {"intent": "data", "lot_id": null, "query_summary": "5월/6월 설비별 수율 변화 비교"}
