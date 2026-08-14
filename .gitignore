@@ -8,11 +8,13 @@ postfab-multi-agent/post_data/
 # 없어서(손으로 쓴 문항) 제외해두면 이 PC에만 남는다. 그 상태로 클론하면 09/10 평가
 # 스크립트가 입력 파일 없음으로 실패한다.
 # 디렉터리 자체를 제외하면 하위 파일을 되살릴 수 없으므로 `data/*` 형태로 쓴다.
+# (e2e_eval.json은 12번이 시뮬 데이터에서 자동 생성하므로 여기 넣지 않는다)
 postfab-multi-agent/data/*
 !postfab-multi-agent/data/eval/
 postfab-multi-agent/data/eval/*
 !postfab-multi-agent/data/eval/data_agent_eval.json
 !postfab-multi-agent/data/eval/router_eval.json
+!postfab-multi-agent/data/eval/multiturn_eval.json
 
 # 환경 변수
 .env

@@ -1,0 +1,118 @@
+{
+  "description": "멀티턴 평가셋 (로드맵 ⑥). 각 대화는 순서대로 실행하며, 앞 턴의 답변이 history로 다음 턴에 들어간다. 지시어(대명사/서수/생략)가 앞 턴의 값을 가리키는지를 본다 — intent뿐 아니라 도구 인자까지 채점해야 해석이 실제로 됐는지 알 수 있다.",
+  "note": "LOT/설비 ID는 11_simulate_data.py 재생성 시 바뀐다. simulated_events.json 기준으로 갱신할 것. 근거는 project_demo_scenarios 메모리 참조.",
+  "conversations": [
+    {
+      "id": "MT-01-drilldown",
+      "설명": "발표 시나리오 본편 — 설비 이상 감지 → 대상 좁히기 → 원인 규명. 지시어 '걔', '첫번째'",
+      "turns": [
+        {
+          "query": "5월 대비 6월에 수율 떨어진 설비 있어?",
+          "expect_intent": "data",
+          "expect_tool": "compare_yield_periods",
+          "expect_answer_contains": ["ML002"]
+        },
+        {
+          "query": "그럼 걔가 6월에 처리한 LOT 중 수율 낮은 거 5개 알려줘",
+          "expect_intent": "data",
+          "expect_tool": "find_low_yield_lots",
+          "expect_tool_input": {"eqp_id": "ML002"},
+          "expect_answer_contains": ["CB262S2401"]
+        },
+        {
+          "query": "첫번째 LOT 원인 분석해줘",
+          "expect_intent": "root_cause",
+          "expect_lot_id": "CB262S2401",
+          "expect_answer_contains": ["TRANSFER_TIME"]
+        }
+      ]
+    },
+    {
+      "id": "MT-02-lot-followup",
+      "설명": "LOT ID를 아는 상태에서 같은 LOT을 이어서 파고든다. 지시어 '이 LOT', 생략된 주어",
+      "turns": [
+        {
+          "query": "CA260S0056 수율 알려줘",
+          "expect_intent": "data",
+          "expect_tool": "analyze_lot_yield",
+          "expect_answer_contains": ["95.5", "AS_Mold"]
+        },
+        {
+          "query": "이 LOT 레시피 뭐 썼어?",
+          "expect_intent": "data",
+          "expect_lot_id": "CA260S0056",
+          "expect_tool": "get_recipe",
+          "expect_answer_contains": ["MOLD83LS"]
+        },
+        {
+          "query": "그럼 왜 낮은지 원인 분석해줘",
+          "expect_intent": "root_cause",
+          "expect_lot_id": "CA260S0056",
+          "expect_answer_contains": ["MOLD_TEMP_3", "368"]
+        }
+      ]
+    },
+    {
+      "id": "MT-03-knowledge-followup",
+      "설명": "원인분석 뒤 용어를 되묻는다. 경로가 root_cause → knowledge로 바뀌어야 한다",
+      "turns": [
+        {
+          "query": "CA260S0022 왜 수율이 낮아?",
+          "expect_intent": "root_cause",
+          "expect_lot_id": "CA260S0022",
+          "expect_answer_contains": ["볼 리프트"]
+        },
+        {
+          "query": "그게 뭔데?",
+          "expect_intent": "knowledge",
+          "expect_answer_contains": ["본드"]
+        },
+        {
+          "query": "그럼 어떻게 대응해?",
+          "expect_intent": "knowledge",
+          "expect_answer_contains": ["캐필러리"]
+        }
+      ]
+    },
+    {
+      "id": "MT-04-period-shift",
+      "설명": "기간만 바꿔 되묻는다. 앞 턴의 집계 단위(설비)를 유지해야 한다",
+      "turns": [
+        {
+          "query": "6월 설비별 수율 알려줘",
+          "expect_intent": "data",
+          "expect_tool": "summarize_yield_by",
+          "expect_tool_input": {"group_by": "설비"}
+        },
+        {
+          "query": "5월은?",
+          "expect_intent": "data",
+          "expect_tool": "summarize_yield_by",
+          "expect_tool_input": {"group_by": "설비", "start_date": "2026-05-01"}
+        }
+      ]
+    },
+    {
+      "id": "MT-05-out-of-scope-recovery",
+      "설명": "범위 밖 질문으로 끊겼다가 다시 업무로 돌아온다. 거절 후에도 맥락이 살아있어야 한다",
+      "turns": [
+        {
+          "query": "CA260S0450 수율 알려줘",
+          "expect_intent": "data",
+          "expect_tool": "analyze_lot_yield",
+          "expect_answer_contains": ["AS_Singulation"]
+        },
+        {
+          "query": "오늘 점심 뭐 먹지?",
+          "expect_intent": "out_of_scope"
+        },
+        {
+          "query": "아까 그 LOT 원인 분석해줘",
+          "expect_intent": "root_cause",
+          "expect_lot_id": "CA260S0450",
+          "expect_answer_contains": ["쏘잉 치핑"]
+        }
+      ]
+    }
+  ]
+}
