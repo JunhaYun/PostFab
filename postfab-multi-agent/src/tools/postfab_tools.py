@@ -728,7 +728,7 @@ TOOL_SPECS = [
             "type": "object",
             "properties": {
                 "lot_id":  {"type": "string", "description": "조회할 LOT ID"},
-                "eqp_id": {"type": "string", "description": "조회할 설비 ID (예: ML45DS)"}
+                "eqp_id": {"type": "string", "description": "조회할 설비 ID (예: ML001)"}
             },
             "required": ["lot_id", "eqp_id"]
         }
@@ -804,7 +804,7 @@ TOOL_SPECS = [
                 "end_date":   {"type": "string", "description": "조회 종료일 YYYY-MM-DD (예: 2026-06-30)"},
                 "limit":      {"type": "integer", "description": "가져올 LOT 개수 (기본 10, 최대 50)"},
                 "step_name":  {"type": "string", "description": "특정 공정만 볼 때 공정명 (예: AS_Mold). 생략 가능"},
-                "eqp_id":     {"type": "string", "description": "특정 설비만 볼 때 설비 ID (예: ML45DS). 생략 가능"}
+                "eqp_id":     {"type": "string", "description": "특정 설비만 볼 때 설비 ID (예: ML001). 생략 가능"}
             },
             "required": ["start_date", "end_date"]
         }
