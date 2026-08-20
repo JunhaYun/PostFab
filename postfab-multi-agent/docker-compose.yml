@@ -1,18 +1,29 @@
+# 개발용(로컬 빌드) compose. 이미지를 받아서 쓰기만 할 사람은 README의
+# docker run 한 줄이면 되고, 이 파일은 필요 없다 — 빌드 컨텍스트에 models/와
+# post_data/가 있어야 하는데 둘 다 저장소에 포함돼 있지 않기 때문이다.
+
 services:
   postfab-agent:
+    image: jun8855/postfab-agent:1.0
     build:
       context: ../
       dockerfile: postfab-multi-agent/Dockerfile
     ports:
       - "8000:8000"
     environment:
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-    volumes:
-      - ./data/mock:/app/data/mock
-      - ./data/chroma:/app/data/chroma
+      # 키가 없으면 조용히 뜬 뒤 질문할 때마다 실패하는 대신, 여기서 바로 멈춘다.
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY를 .env에 넣거나 환경변수로 지정하세요}
     restart: unless-stopped
+
+    # 볼륨 마운트 없음 — 예전에는 ./data/mock 과 ./data/chroma 를 bind mount 했는데,
+    # 그러면 이미지에 구워둔 DB(3,004 LOT)와 벡터스토어를 호스트의 빈 폴더가 덮어써서
+    # 이미지를 받아 쓰는 사람은 빈 DB로 뜬다. 둘 다 빌드 시점에 생성되므로 마운트할 이유가 없다.
+
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      # curl은 python:3.11-slim에 없다 — 예전 healthcheck가 curl을 써서 항상 unhealthy였다.
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health', timeout=5).status == 200 else 1)"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 60s   # 첫 기동 때 임베딩 모델 2.2GB 로딩 시간

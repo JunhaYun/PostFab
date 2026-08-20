@@ -5,6 +5,12 @@
 현장 엔지니어가 자연어로 질문하면 6개 에이전트가 분업해 공정 지식 검색, MES 데이터 조회·집계, 수율 저하 원인 분석 리포트 생성까지 처리합니다.
 Knowledge Agent는 RAG로 공정 지식을 검색하고, Data Agent는 Function Calling으로 MES/FDC/YMS Mock DB를 조회하며, Report Agent는 이를 종합해 LOT 이상 원인 분석 리포트를 생성합니다.
 
+**바로 실행해 보기** — 설치 없이 Docker 한 줄이면 됩니다 ([자세히](#방법-a--docker-hub에서-받아서-실행-권장)):
+
+```bash
+docker run -p 8000:8000 -e ANTHROPIC_API_KEY=sk-ant-... jun8855/postfab-agent:1.0
+```
+
 ---
 
 ## 평가 결과
@@ -189,19 +195,39 @@ emap 원본: `post_data/emap/*.txt` 510개 (Strip별 die pass/fail 맵)
 
 ## 설치 및 실행
 
-### 방법 A — Docker (권장)
+### 방법 A — Docker Hub에서 받아서 실행 (권장)
 
-모델과 코퍼스를 포함한 단일 이미지입니다. 빌드 시 Mock DB 생성과 벡터스토어 구축까지 끝납니다.
+빌드도 설치도 필요 없습니다. 파인튜닝 임베딩 모델, 코퍼스, 6개월치 시뮬레이션 데이터(3,000 LOT)가
+모두 이미지에 들어 있어 **받아서 바로 뜹니다.**
+
+```bash
+docker run -p 8000:8000 -e ANTHROPIC_API_KEY=sk-ant-... jun8855/postfab-agent:1.0
+```
+
+→ 브라우저에서 http://localhost:8000
+
+- **[hub.docker.com/r/jun8855/postfab-agent](https://hub.docker.com/r/jun8855/postfab-agent)**
+- 이미지 약 4.3GB (첫 `docker run` 시 자동으로 내려받습니다)
+- **본인 Anthropic API 키가 필요합니다** — 키는 이미지에 들어 있지 않고 실행 시 주입합니다.
+  키는 [console.anthropic.com](https://console.anthropic.com/settings/keys)에서 발급합니다.
+- 플랫폼은 `linux/amd64`입니다. Apple Silicon 맥에서는 에뮬레이션으로 동작해 첫 기동이 느립니다.
+
+> **`--env-file`을 쓸 때 주의**: Docker는 `.env`의 따옴표를 값의 일부로 넘깁니다.
+> `ANTHROPIC_API_KEY="sk-ant-..."`처럼 따옴표로 감싸면 키가 `"sk-ant-...`가 되어 401이 납니다.
+> 따옴표 없이 쓰거나 위처럼 `-e`로 직접 넘기세요.
+
+### 방법 B — 소스에서 직접 빌드
+
+저장소를 클론해 빌드하려면 **파인튜닝 모델(`models/`)과 원본 데이터(`post_data/`)가 필요한데
+둘 다 용량·보안 문제로 저장소에 포함돼 있지 않습니다.** 이미지를 받아 쓰는 방법 A를 권합니다.
 
 ```bash
 cd postfab-multi-agent
-cp .env.example .env   # ANTHROPIC_API_KEY 입력
+cp .env.example .env   # ANTHROPIC_API_KEY 입력 (따옴표 없이)
 docker compose up --build
 ```
 
-→ http://localhost:8000 (웹 UI + FastAPI)
-
-### 방법 B — 로컬 실행
+### 방법 C — 로컬 실행
 
 ```bash
 cd postfab-multi-agent
@@ -209,8 +235,9 @@ pip install -r requirements.txt
 
 cp .env.example .env   # ANTHROPIC_API_KEY 입력
 
-python scripts/create_mock_db.py      # Mock DB 생성
-python src/rag/build_vectorstore.py   # RAG 벡터스토어 구축
+python scripts/create_mock_db.py       # Mock DB 초기화 (원본 4개 LOT)
+python scripts/11_simulate_data.py     # 6개월치 시뮬레이션 데이터 추가 (3,000 LOT)
+python -m src.rag.build_vectorstore    # RAG 벡터스토어 구축
 ```
 
 **FastAPI 서버 + 웹 UI**

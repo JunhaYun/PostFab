@@ -8,3 +8,6 @@ uvicorn[standard]>=0.29.0
 langgraph>=0.2.0
 openpyxl>=3.1.0
 rank_bm25>=0.2.2
+# scripts/create_mock_db.py가 쓴다. 그동안 streamlit 의존성으로 딸려 들어와
+# 선언 없이 동작했으나, streamlit 없이 설치하면 바로 깨지므로 명시한다.
+pandas>=2.0.0

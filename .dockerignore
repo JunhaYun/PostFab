@@ -1,0 +1,28 @@
+# 빌드 컨텍스트는 리포 루트다 (docker-compose.yml의 context: ../).
+# Docker는 컨텍스트 루트의 .dockerignore만 읽으므로 적용되는 것은 이 파일뿐이며,
+# postfab-multi-agent/.dockerignore는 무시된다 — .env가 이미지에 들어가던 원인.
+
+# ── 시크릿: 절대 이미지에 들어가면 안 됨 ────────────────────────────────
+# Dockerfile의 COPY postfab-multi-agent/ . 가 .env를 통째로 가져간다.
+# API 키는 런타임에 환경변수로 주입한다(docker-compose.yml 참고).
+**/.env
+**/*.env
+
+# ── 가상환경 / 의존성: 이미지 안에서 새로 설치한다 ──────────────────────
+postfab-multi-agent/postfab/
+node_modules/
+**/__pycache__/
+*.pyc
+
+# ── 모델: 실제로 쓰는 v2만 넣는다 (models/ 전체는 8.6GB) ────────────────
+# 나머지 셋은 파인튜닝 전/후 비교와 ablation 실험용이라 런타임에 불필요.
+models/postfab-bge-m3-final/
+models/postfab-bge-m3-v2-formal/
+models/postfab-bge-m3-v2-casual/
+
+# ── 리포 메타 / 작업 파일 ───────────────────────────────────────────────
+.git/
+.claude/
+_extract_tmp/
+_extract_tmp2/
+*.docx

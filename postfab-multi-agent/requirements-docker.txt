@@ -1,0 +1,27 @@
+# 컨테이너 런타임 전용 의존성 — requirements.txt에서 streamlit 계열을 뺀 것.
+#
+# 컨테이너는 FastAPI(app.api.main)로 서비스한다. Streamlit 프로토타입 UI는 로컬
+# 개발에서만 쓰므로 이미지에 넣지 않는다 — streamlit을 넣으면 pyarrow/altair/pydeck이
+# 따라 들어와 이미지가 약 400MB 커진다.
+#
+# torch는 여기 없다. Dockerfile에서 CPU 전용 인덱스로 먼저 설치한다 —
+# 기본 PyPI 휠은 CUDA 라이브러리(nvidia-*, triton)를 함께 끌어오는데 컨테이너에
+# GPU가 없어 전부 낭비다(실측 3.4GB). sentence-transformers가 torch를 요구하지만
+# 이미 설치돼 있으면 그대로 쓴다.
+#
+# requirements.txt를 고치면 이 파일도 같이 볼 것.
+
+anthropic>=0.25.0
+chromadb>=0.5.0
+# pandas는 런타임(src/, app/api)에서는 안 쓰고 빌드 단계의 create_mock_db.py만 쓴다.
+# 그동안 streamlit이 딸려 들여와 선언 없이 동작하던 것이라, streamlit을 빼자마자
+# ModuleNotFoundError로 드러났다. 컨테이너 안에서 시뮬레이터를 다시 돌릴 수도 있으므로
+# 빼지 않고 명시한다.
+pandas>=2.0.0
+sentence-transformers>=3.0.0
+python-dotenv>=1.0.0
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+langgraph>=0.2.0
+openpyxl>=3.1.0
+rank_bm25>=0.2.2
